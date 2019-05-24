@@ -3,9 +3,10 @@
 
 class iptuple{
 private:
-  char ip[100],port[50];
 
 public:
+  char ip[100],port[50];
+
   iptuple(const char *_ip, const char *_port);
 
   int get_ip()const;

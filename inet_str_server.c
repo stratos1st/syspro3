@@ -10,7 +10,12 @@
 #include <ctype.h>	         /* toupper */
 #include <signal.h>          /* signal */
 #include <string.h>
-void child_server(int newsock);
+#include <errno.h>
+
+#include "linked_list.h"
+#include "tuple.h"
+
+void child_server(int newsock, LinkedList *list);
 void perror_exit(char *message);
 void sigchld_handler (int sig);
 
@@ -46,29 +51,32 @@ int main(int argc, char *argv[]) {
   if (listen(sock, 5) < 0) perror_exit("listen");
 
   printf("Listening for connections to port %d\n", port);
+  LinkedList* list = new LinkedList();
   while (1) {
     /* accept connection */
-    if ((newsock = accept(sock, clientptr, &clientlen)) < 0) perror_exit("accept");
+    if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
     /* Find client's address */
     //    	if ((rem = gethostbyaddr((char *) &client.sin_addr.s_addr, sizeof(client.sin_addr.s_addr), client.sin_family)) == NULL) {
     //   	    herror("gethostbyaddr"); exit(1);}
     //    	printf("Accepted connection from %s\n", rem->h_name);
     printf("Accepted connection\n");
-    switch (fork()){    /* Create child for serving client */
-      case -1:     /* Error */
-      perror("fork"); break;
-      case 0:	     /* Child process */
-      close(sock);
-      child_server(newsock);
-      exit(0);
-    }
+    // switch (fork()){    /* Create child for serving client */
+    //   case -1:     /* Error */
+    //   perror("fork"); break;
+    //   case 0:	     /* Child process */
+    //   close(sock);
+    //   child_server(newsock);
+    //   exit(0);
+    // }
+    child_server(newsock,list);
+
     close(newsock); /* parent closes socket to client */
   }
 
   return 0;
 }
 
-  void child_server(int newsock) {
+void child_server(int newsock,LinkedList *list) {
   char buf[256],tmp[50];
   tmp[0]='\0';
 
@@ -80,6 +88,7 @@ int main(int argc, char *argv[]) {
       printf("%s\n", tmp);
       //--------------------------------------an ine log_on
       if(strcmp(tmp,"LOG_ON")==0){
+        iptuple tmp_tuple("a","b");
         tmp[0]='\0';
         printf("loged on with ");
         //1 arg ip
@@ -92,6 +101,7 @@ int main(int argc, char *argv[]) {
           strcat(tmp,buf);
         }
         printf(" ip %s and", tmp);
+        strcpy(tmp_tuple.ip,tmp);
 
         //2 arg port
         tmp[0]='\0';
@@ -102,6 +112,15 @@ int main(int argc, char *argv[]) {
           strcat(tmp,buf);
         }
         printf(" port %s\n", tmp);
+        strcpy(tmp_tuple.port,tmp);
+
+        list->add(tmp_tuple);
+        tmp[0]='\0';
+        list->print();
+      }
+      else if(strcmp(tmp, "END")==0){
+        printf("ENDED\n" );
+        break;
       }
     }
     else
@@ -109,18 +128,6 @@ int main(int argc, char *argv[]) {
 
   }
 
-
-
-
-
-  while(read(newsock, buf, 1) > 0) {  /* Receive 1 char */
-    putchar(buf[0]);           /* Print received char */
-    /* Capitalize character */
-    buf[0] = toupper(buf[0]);
-    /* Reply */
-    if (write(newsock, buf, 1) < 0)
-      perror_exit("write");
-  }
   printf("Closing connection.\n");
   close(newsock);	  /* Close socket */
 }
@@ -132,5 +139,9 @@ void sigchld_handler (int sig) {
 
 void perror_exit(char *message) {
   perror(message);
+  char buffer[256];
+  char * errorMsg = strerror_r( errno, buffer, 256 ); // GNU-specific version, Linux default
+  printf("Error %s", errorMsg); //return value has to be used since buffer might not be modified
+
   exit(EXIT_FAILURE);
 }

@@ -87,7 +87,7 @@ void LinkedList::print(){
   Node* head = this->head;
   int i = 1;
   while(head){
-    std::cout << i << ": " ; head->data->print();cout << std::endl;
+    cout << i << ": " ; head->data->print();cout << endl;
     head = head->next;
     i++;
   }

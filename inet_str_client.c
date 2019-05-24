@@ -66,6 +66,10 @@ else{
 // printf("%s %d\n",symbolicip,strlen(symbolicip)+1 );
 sprintf(buf, "LOG_ON <%s, %d>",symbolicip,port);
 if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+strcpy(buf,"END ");
+if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+sleep(1);
+exit(0);
 
 
 
