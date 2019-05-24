@@ -11,33 +11,36 @@
 #include <signal.h>          /* signal */
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "linked_list.h"
 #include "tuple.h"
 
-void child_server(int newsock, LinkedList *list);
+LinkedList* list;
+pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *child_server(void* newsoc);
 void perror_exit(char *message);
 void sigchld_handler (int sig);
 
 int main(int argc, char *argv[]) {
-  int             port, sock, newsock;
+  int port, sock, newsock;
   struct sockaddr_in server, client;
   socklen_t clientlen;
   struct sockaddr *serverptr=(struct sockaddr *)&server;
   struct sockaddr *clientptr=(struct sockaddr *)&client;
   struct hostent *rem;
-
-
   //check for arg errors
   if (argc != 2) {
     printf("Please give port number\n");
     exit(1);
   }
   port = atoi(argv[1]);
+  list = new LinkedList();
 
 
 
-
+//-------------------------------------------------------opening ports initializing
   /* Reap dead children asynchronously */
   signal(SIGCHLD, sigchld_handler);
   /* Create socket */
@@ -50,8 +53,8 @@ int main(int argc, char *argv[]) {
   /* Listen for connections */
   if (listen(sock, 5) < 0) perror_exit("listen");
 
+//------------------------------------------------------waiting for conections
   printf("Listening for connections to port %d\n", port);
-  LinkedList* list = new LinkedList();
   while (1) {
     /* accept connection */
     if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
@@ -60,23 +63,17 @@ int main(int argc, char *argv[]) {
     //   	    herror("gethostbyaddr"); exit(1);}
     //    	printf("Accepted connection from %s\n", rem->h_name);
     printf("Accepted connection\n");
-    // switch (fork()){    /* Create child for serving client */
-    //   case -1:     /* Error */
-    //   perror("fork"); break;
-    //   case 0:	     /* Child process */
-    //   close(sock);
-    //   child_server(newsock);
-    //   exit(0);
-    // }
-    child_server(newsock,list);
-
-    close(newsock); /* parent closes socket to client */
+    pthread_t t;
+    pthread_create(&t, NULL, child_server, (void *)&newsock);
+    pthread_join(t , NULL);
+    // close(newsock); /* parent closes socket to client */
   }
 
   return 0;
 }
 
-void child_server(int newsock,LinkedList *list) {
+void *child_server(void *newsoc) {
+  int newsock= *(int*)newsoc;
   char buf[256],tmp[50];
   tmp[0]='\0';
 
@@ -114,9 +111,11 @@ void child_server(int newsock,LinkedList *list) {
         printf(" port %s\n", tmp);
         strcpy(tmp_tuple.port,tmp);
 
+        pthread_mutex_lock(&counter_lock);
         list->add(tmp_tuple);
         tmp[0]='\0';
         list->print();
+        pthread_mutex_unlock(&counter_lock);
       }
       else if(strcmp(tmp, "END")==0){
         printf("ENDED\n" );
@@ -131,6 +130,8 @@ void child_server(int newsock,LinkedList *list) {
   printf("Closing connection.\n");
   close(newsock);	  /* Close socket */
 }
+
+//TODO sinal handler gia exit na sbini mnimi
 
 /* Wait for all dead child processes */
 void sigchld_handler (int sig) {

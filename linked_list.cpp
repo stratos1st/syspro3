@@ -8,6 +8,7 @@ using namespace std;
 
 Node::Node(){
   next=NULL;
+  prev=NULL;
   data= new iptuple("1","2");
 }
 
@@ -37,20 +38,25 @@ LinkedList::~LinkedList(){
 void LinkedList::add(iptuple data){
   Node* node = new Node();
   node->data = new iptuple(data.get_ip_str(),data.get_port_str());
-  node->next = this->head;
-  this->head = node;
+  if(!head){
+    node->prev=NULL;
+    node->next=NULL;
+    head=node;
+  }
+  else{
+    node->next = head;
+    head->prev=node;
+    node->prev=NULL;
+    head = node;
+  }
   this->length++;
 }
 
 Node* LinkedList::find(iptuple data){
   Node *tmp=head;
 
-  if(tmp)
+  while(tmp){
     if(*tmp->data==data)
-      return tmp;
-
-  while(tmp->next){
-    if(*tmp->next->data==data)
       return tmp;
     else
       tmp=tmp->next;
@@ -59,26 +65,14 @@ Node* LinkedList::find(iptuple data){
 }
 
 bool LinkedList::deleten(iptuple data){
-  Node *tmp,*a;
+  Node *tmp;
   if((tmp=find(data))!=NULL){
-    if(*tmp->next->data==data){
-      a=tmp->next->next;
-      delete tmp->next;
-      tmp->next=a;
-      length--;
-      return true;
-    }
-    else if(tmp)
-      if(*tmp->data==data){
-        a=tmp->next;
-        delete tmp;
-        head=a;
-        length--;
-        return true;
-      }
-
-    printf("\n\nWTF deleten\n\n");
-    return false;
+    if(tmp->prev)
+      tmp->prev->next=tmp->next;
+    if(tmp->next)
+      tmp->next->prev=tmp->prev;
+    delete tmp;
+    return true;
   }
   return false;
 }

@@ -6,7 +6,7 @@
 
 class Node{
  public:
-  Node* next;
+  Node *next,*prev;
   iptuple *data;
   Node();
   // ~Node(){}
