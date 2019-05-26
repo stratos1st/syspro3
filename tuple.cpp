@@ -30,6 +30,12 @@ void iptuple::print(){
   cout<<ip<<" "<<port;
 }
 
+char* iptuple::get_string(){
+  char *ans=new char[500];
+  sprintf(ans,"<%s, %s>",ip,port);
+  return ans;
+}
+
 bool iptuple::operator==(const iptuple& rhs){
     return (get_ip()==rhs.get_ip()) && (get_port()==rhs.get_port());
 }

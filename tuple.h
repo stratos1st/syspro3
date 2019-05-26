@@ -14,6 +14,7 @@ public:
   const char* get_ip_str()const;
   const char* get_port_str()const;
   void print();
+  char* get_string();
   bool operator==(const iptuple& rhs);
 
 };

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <string.h>
 #include "linked_list.h"
 #include "tuple.h"
 
@@ -20,8 +21,8 @@ Node::Node(){
 // }
 
 LinkedList::LinkedList(){
-    this->length = 0;
-    this->head = NULL;
+  this->length = 0;
+  this->head = NULL;
 }
 
 LinkedList::~LinkedList(){
@@ -85,6 +86,21 @@ void LinkedList::print(){
     head = head->next;
     i++;
   }
+}
+
+char* LinkedList::get_string(){
+  Node* head = this->head;
+  char* ans=new char[999];
+  ans[0]='\0';
+
+  while(head){
+    strcat(ans,head->data->get_string());
+    head = head->next;
+  }
+  if(length==0)
+  strcat(ans,"NONE");
+
+  return ans;
 }
 
 int LinkedList::getlen(){

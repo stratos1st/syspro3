@@ -1,4 +1,5 @@
 /*inet_str_server.c: Internet stream sockets server */
+#include <iostream>
 #include <stdio.h>
 #include <sys/wait.h>	     /* sockets */
 #include <sys/types.h>	     /* sockets */
@@ -15,6 +16,8 @@
 
 #include "linked_list.h"
 #include "tuple.h"
+
+using namespace std;
 
 LinkedList* list;
 pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -116,6 +119,18 @@ void *child_server(void *newsoc) {
         tmp[0]='\0';
         list->print();
         pthread_mutex_unlock(&counter_lock);
+      }
+      else if(strcmp(tmp,"GET_CLIENTS")==0){
+        tmp[0]='\0';
+        char *tmp_buf;
+
+        if (write(newsock, "CLIENT_LIST ", 12) < 0) perror_exit("write");
+        sprintf(tmp, "%d ",list->getlen());
+        if (write(newsock, tmp, strlen(tmp)) < 0) perror_exit("write");
+        tmp_buf=list->get_string();
+        cout<<tmp_buf<<endl;
+        if (write(newsock, tmp_buf, strlen(tmp_buf)+1) < 0) perror_exit("write");
+
       }
       else if(strcmp(tmp, "END")==0){
         printf("ENDED\n" );

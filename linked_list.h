@@ -10,6 +10,7 @@ class Node{
   iptuple *data;
   Node();
   // ~Node(){}
+  char* get_string();
 };
 
 class LinkedList{
@@ -24,6 +25,7 @@ public:
   Node* find(iptuple data);
   bool deleten(iptuple data);
   int getlen();
+  char* get_string();
 
 };
 

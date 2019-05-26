@@ -13,7 +13,7 @@
 
 void perror_exit(char *message);
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]){
   int             port, sock, i;
   char            buf[256];
   struct sockaddr_in server, client;
@@ -66,6 +66,67 @@ else{
 // printf("%s %d\n",symbolicip,strlen(symbolicip)+1 );
 sprintf(buf, "LOG_ON <%s, %d>",symbolicip,port);
 if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+strcpy(buf,"GET_CLIENTS ");
+if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+
+char tmp[500];
+
+while(read(sock, buf, 1) > 0){
+  buf[1]='\0';
+  printf("%s\n",buf);
+  //pirame tin entoli
+  if(buf[0]==' '){
+    printf("%s\n", tmp);
+    //--------------------------------------an ine log_on
+    if(strcmp(tmp,"CLIENT_LIST")==0){
+      int n;
+      // diabazi n
+      tmp[0]='\0';
+      while(read(sock, buf, 1) > 0){
+        if(buf[0]==' ')
+          break;
+        buf[1]='\0';
+        strcat(tmp,buf);
+      }
+      n=atoi(tmp);
+      printf("%d\n",n );
+
+      for(int i=0;i<n;i++){
+        //diabase to proto <>
+        while(read(sock, buf, 1) > 0){
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(sock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("<%s,",tmp);
+            tmp[0]='\0';
+            //diabase port
+            while(read(sock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%s>\n",tmp);
+          }
+          buf[1]='\0';
+          break;
+        }
+      }
+    }
+  }
+  else
+    strcat(tmp,buf);
+
+}
+
+
+
 strcpy(buf,"END ");
 if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
 sleep(1);
