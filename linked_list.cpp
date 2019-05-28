@@ -72,7 +72,11 @@ bool LinkedList::deleten(iptuple data){
       tmp->prev->next=tmp->next;
     if(tmp->next)
       tmp->next->prev=tmp->prev;
+    if(tmp==head)
+      head=tmp->next;
     delete tmp;
+    tmp=NULL;
+    length--;
     return true;
   }
   return false;
@@ -81,6 +85,7 @@ bool LinkedList::deleten(iptuple data){
 void LinkedList::print(){
   Node* head = this->head;
   int i = 1;
+  cout<<"LIST:\n";
   while(head){
     cout << i << ": " ; head->data->print();cout << endl;
     head = head->next;

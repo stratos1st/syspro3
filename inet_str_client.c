@@ -9,13 +9,27 @@
 #include <string.h>	         /* strlen */
 #include <arpa/inet.h>      //inet_ntoa
 
+#include <sys/inotify.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#include <sys/prctl.h>
+
 #define LOG_ON 1
 
+//TODO na kratai lista apo tuples kai na sbini otan lambani useroff
+
 void perror_exit(char *message);
+void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
+
+//globals for signal handler
+int port, sock;
+char symbolicip [50];
 
 int main(int argc, char *argv[]){
-  int             port, sock, i;
-  char            buf[256];
+  int i;
+  char buf[256];
   struct sockaddr_in server, client;
   struct sockaddr *serverptr = (struct sockaddr*)&server;
   struct hostent *rem;
@@ -26,6 +40,12 @@ int main(int argc, char *argv[]){
     exit(1);
   }
 
+  //asigning signal handlers
+  static struct sigaction act2;
+  act2.sa_handler = kill_signal_handler;
+  sigfillset (&(act2.sa_mask ));
+  sigaction (SIGQUIT, &act2, NULL);
+  sigaction (SIGINT, &act2, NULL);
 
 
 
@@ -51,7 +71,6 @@ int main(int argc, char *argv[]){
 if(gethostname(buf, 256)!=0){perror_exit("gethostname");}
 printf("%s\n", buf);
 struct hostent * mymachine ;
-char symbolicip [50];
 struct in_addr ** addr_list;
 if ( ( mymachine = gethostbyname ( buf) ) == NULL )
   printf ( " Could not resolved Name : %s \n " , buf) ;
@@ -70,6 +89,7 @@ strcpy(buf,"GET_CLIENTS ");
 if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
 
 char tmp[500];
+tmp[0]='\0';
 
 while(read(sock, buf, 1) > 0){
   buf[1]='\0';
@@ -89,7 +109,63 @@ while(read(sock, buf, 1) > 0){
         strcat(tmp,buf);
       }
       n=atoi(tmp);
-      printf("%d\n",n );
+      printf(" %d\n",n );
+
+      for(int i=0;i<n;i++){
+        //diabase to proto <>
+        while(read(sock, buf, 1) > 0){
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(sock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("<%s,",tmp);
+            tmp[0]='\0';
+            //diabase port
+            while(read(sock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%s>\n",tmp);
+          }
+          buf[1]='\0';
+          break;
+        }
+      }
+      break;
+    }
+  }
+  else
+    strcat(tmp,buf);
+
+}
+
+
+while(read(sock, buf, 1) > 0){
+  buf[1]='\0';
+  printf("%s\n",buf);
+  //pirame tin entoli
+  if(buf[0]==' '){
+    printf("%s\n", tmp);
+    //--------------------------------------an ine log_on
+    if(strcmp(tmp,"CLIENT_LIST")==0){
+      int n;
+      // diabazi n
+      tmp[0]='\0';
+      while(read(sock, buf, 1) > 0){
+        if(buf[0]==' ')
+          break;
+        buf[1]='\0';
+        strcat(tmp,buf);
+      }
+      n=atoi(tmp);
+      printf(" %d\n",n );
 
       for(int i=0;i<n;i++){
         //diabase to proto <>
@@ -119,6 +195,34 @@ while(read(sock, buf, 1) > 0){
         }
       }
     }
+    else if(strcmp(tmp,"USER_OFF")){
+      printf("user loged off ");
+      //diabase to proto <>
+      while(read(sock, buf, 1) > 0){
+        if(buf[0]=='<'){
+          tmp[0]='\0';
+          //diabase ip
+          while(read(sock, buf, 1) > 0){
+            if(buf[0]==',')
+              break;
+            buf[1]='\0';
+            strcat(tmp,buf);
+          }
+          printf("<%s,",tmp);
+          tmp[0]='\0';
+          //diabase port
+          while(read(sock, buf, 1) > 0){
+            if(buf[0]=='>')
+              break;
+            buf[1]='\0';
+            strcat(tmp,buf);
+          }
+          printf("%s>\n",tmp);
+        }
+        buf[1]='\0';
+        break;
+      }
+    }
   }
   else
     strcat(tmp,buf);
@@ -126,11 +230,11 @@ while(read(sock, buf, 1) > 0){
 }
 
 
-
-strcpy(buf,"END ");
-if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-sleep(1);
-exit(0);
+// sleep(1);
+// strcpy(buf,"END ");
+// if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+// sleep(1);
+// exit(0);
 
 
 
@@ -154,4 +258,15 @@ exit(0);
 void perror_exit(char *message){
   perror(message);
   exit(EXIT_FAILURE);
+}
+
+//main signal handler for SIGQUIT and SIGINT
+void kill_signal_handler(int sig){
+  fflush(stdout);
+  char buf[100];
+
+  sprintf(buf, "LOG_OFF <%s, %d>",symbolicip,port);
+  if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+
+  exit(0);
 }

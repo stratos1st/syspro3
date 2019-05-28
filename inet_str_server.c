@@ -17,6 +17,9 @@
 #include "linked_list.h"
 #include "tuple.h"
 
+//TODO na stelni useroff
+
+
 using namespace std;
 
 LinkedList* list;
@@ -25,6 +28,7 @@ pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
 void *child_server(void* newsoc);
 void perror_exit(char *message);
 void sigchld_handler (int sig);
+
 
 int main(int argc, char *argv[]) {
   int port, sock, newsock;
@@ -59,6 +63,7 @@ int main(int argc, char *argv[]) {
 //------------------------------------------------------waiting for conections
   printf("Listening for connections to port %d\n", port);
   while (1) {
+    cout<<"a\n";
     /* accept connection */
     if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
     /* Find client's address */
@@ -68,14 +73,16 @@ int main(int argc, char *argv[]) {
     printf("Accepted connection\n");
     pthread_t t;
     pthread_create(&t, NULL, child_server, (void *)&newsock);
-    pthread_join(t , NULL);
+    // pthread_join(t , NULL);
     // close(newsock); /* parent closes socket to client */
   }
 
   return 0;
 }
 
-void *child_server(void *newsoc) {
+void *child_server(void *newsoc){
+  printf("thread id = %d\n", pthread_self());
+
   int newsock= *(int*)newsoc;
   char buf[256],tmp[50];
   tmp[0]='\0';
@@ -116,10 +123,10 @@ void *child_server(void *newsoc) {
 
         pthread_mutex_lock(&counter_lock);
         list->add(tmp_tuple);
-        tmp[0]='\0';
         list->print();
         pthread_mutex_unlock(&counter_lock);
       }
+      //--------------------------------------an ine GET_CLIENTS
       else if(strcmp(tmp,"GET_CLIENTS")==0){
         tmp[0]='\0';
         char *tmp_buf;
@@ -132,10 +139,45 @@ void *child_server(void *newsoc) {
         if (write(newsock, tmp_buf, strlen(tmp_buf)+1) < 0) perror_exit("write");
 
       }
+      //--------------------------------------an ine LOG_OFF
+      else if(strcmp(tmp,"LOG_OFF")==0){
+        iptuple tmp_tuple("a","b");
+        tmp[0]='\0';
+        printf("loged off with ");
+        //1 arg ip
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]=='<')
+            continue;
+          if(buf[0]==',')
+            break;
+          buf[1]='\0';
+          strcat(tmp,buf);
+        }
+        printf(" ip %s and", tmp);
+        strcpy(tmp_tuple.ip,tmp);
+
+        //2 arg port
+        tmp[0]='\0';
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]=='>')
+            break;
+          buf[1]='\0';
+          strcat(tmp,buf);
+        }
+        printf(" port %s\n", tmp);
+        strcpy(tmp_tuple.port,tmp);
+
+        pthread_mutex_lock(&counter_lock);
+        list->deleten(tmp_tuple);
+        list->print();
+        pthread_mutex_unlock(&counter_lock);
+        return NULL;
+      }
       else if(strcmp(tmp, "END")==0){
-        printf("ENDED\n" );
+        printf("ENDED\n");
         break;
       }
+      tmp[0]='\0';
     }
     else
       strcat(tmp,buf);
