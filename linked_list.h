@@ -9,7 +9,7 @@ class Node{
   Node *next,*prev;
   iptuple *data;
   Node();
-  // ~Node(){}
+  ~Node();
   char* get_string();
 };
 
@@ -26,6 +26,7 @@ public:
   bool deleten(iptuple data);
   int getlen();
   char* get_string();
+  iptuple* get_by_index(unsigned int index);
 
 };
 

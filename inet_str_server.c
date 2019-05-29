@@ -28,6 +28,7 @@ pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
 void *child_server(void* newsoc);
 void perror_exit(char *message);
 void sigchld_handler (int sig);
+int connect_to_sock(char *ipaddr ,char* sock_num);
 
 
 int main(int argc, char *argv[]) {
@@ -93,7 +94,7 @@ void *child_server(void *newsoc){
     //pirame tin entoli
     if(buf[0]==' '){
       printf("%s\n", tmp);
-      //--------------------------------------an ine log_on
+      //--------------------------------------an ine LOG_ON
       if(strcmp(tmp,"LOG_ON")==0){
         iptuple tmp_tuple("a","b");
         tmp[0]='\0';
@@ -120,6 +121,15 @@ void *child_server(void *newsoc){
         }
         printf(" port %s\n", tmp);
         strcpy(tmp_tuple.port,tmp);
+
+        iptuple* list_elem=NULL;
+        for(unsigned int i=0;(list_elem=list->get_by_index(i))!=NULL;i++){
+          sprintf(buf, "USER_ON <%s, %d>",tmp_tuple.ip,tmp_tuple.port);
+          int tmp_sock=connect_to_sock(list_elem->ip,list_elem->port);
+          if(write(tmp_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+          close(tmp_sock);
+          printf("%s\n", buf);
+        }
 
         pthread_mutex_lock(&counter_lock);
         list->add(tmp_tuple);
@@ -171,12 +181,22 @@ void *child_server(void *newsoc){
         list->deleten(tmp_tuple);
         list->print();
         pthread_mutex_unlock(&counter_lock);
+
+        iptuple* list_elem=NULL;
+        for(unsigned int i=0;(list_elem=list->get_by_index(i))!=NULL;i++){
+          sprintf(buf, "USER_OFF <%s, %s>",tmp_tuple.ip,tmp_tuple.port);
+          int tmp_sock=connect_to_sock(list_elem->ip,list_elem->port);
+          if(write(tmp_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+          close(tmp_sock);
+          printf("%s\n", buf);
+        }
+
         return NULL;
       }
-      else if(strcmp(tmp, "END")==0){
-        printf("ENDED\n");
-        break;
-      }
+      // else if(strcmp(tmp, "END")==0){
+      //   printf("ENDED\n");
+      //   break;
+      // }
       tmp[0]='\0';
     }
     else
@@ -184,11 +204,34 @@ void *child_server(void *newsoc){
 
   }
 
-  printf("Closing connection.\n");
+  printf("Closing connection .\n");
   close(newsock);	  /* Close socket */
+
+  return NULL;
 }
 
 //TODO sinal handler gia exit na sbini mnimi
+
+int connect_to_sock(char *ipaddr ,char* sock_num){
+  //create socket and connection
+  int sock,port;
+  struct sockaddr_in server;
+  struct sockaddr *serverptr = (struct sockaddr*)&server;
+  struct hostent *rem;
+  /* Create socket */
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+  /* Find server address */
+  if ((rem = gethostbyname(ipaddr)) == NULL) {perror("gethostbyname");exit(1);}
+  port = atoi(sock_num); /*Convert port number to integer*/
+  server.sin_family = AF_INET;       /* Internet domain */
+  memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+  server.sin_port = htons(port);         /* Server port */
+  /* Initiate connection */
+  if (connect(sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  printf("Connecting to %s port %d\n", ipaddr, port);
+
+  return sock;
+}
 
 /* Wait for all dead child processes */
 void sigchld_handler (int sig) {

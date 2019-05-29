@@ -8,6 +8,8 @@
 #include <stdlib.h>	         /* exit */
 #include <string.h>	         /* strlen */
 #include <arpa/inet.h>      //inet_ntoa
+#include <pthread.h>
+
 
 #include <sys/inotify.h>
 #include <sys/wait.h>
@@ -22,23 +24,24 @@
 
 void perror_exit(char *message);
 void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
+void *rcv_child(void* newsoc);
+void *send_child(void* newsoc);
+int connect_to_sock(char *ipaddr ,char* sock_num);
 
 //globals for signal handler
-int port, sock;
-char symbolicip [50];
+int server_port, server_sock,server,port;
+char server_symbolicip[50],server_port_str[50];
 
 int main(int argc, char *argv[]){
-  int i;
-  char buf[256];
-  struct sockaddr_in server, client;
+  char buf[256],tmp[500];
+  struct sockaddr_in server;
   struct sockaddr *serverptr = (struct sockaddr*)&server;
   struct hostent *rem;
+  pthread_t t;
+  int newsock,sock;
+  char symbolicip[50];
 
-  //check for arg errors
-  if (argc != 3) {
-    printf("Please give host name and port number\n");
-    exit(1);
-  }
+
 
   //asigning signal handlers
   static struct sigaction act2;
@@ -48,186 +51,129 @@ int main(int argc, char *argv[]){
   sigaction (SIGINT, &act2, NULL);
 
 
-
-  //create socket and connecton
+//-------------------------------------create socket and connection to primary server socket
   /* Create socket */
-  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+  if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
   /* Find server address */
   if ((rem = gethostbyname(argv[1])) == NULL) {perror("gethostbyname");exit(1);}
-  port = atoi(argv[2]); /*Convert port number to integer*/
+  server_port = atoi(argv[2]); /*Convert port number to integer*/
+  strcpy(server_port_str,argv[2]);
   server.sin_family = AF_INET;       /* Internet domain */
   memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
-  server.sin_port = htons(port);         /* Server port */
+  server.sin_port = htons(server_port);         /* Server port */
   /* Initiate connection */
-  if (connect(sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  if (connect(server_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  printf("Connecting to %s port %d\n", argv[1], server_port);
 
-  printf("Connecting to %s port %d\n", argv[1], port);
-
-  // int a=LOG_ON;
-  // if (write(sock, &a, sizeof(int)) < 0) perror_exit("write");
-  /* Find client's address */
-
-//find host name and ip address
-if(gethostname(buf, 256)!=0){perror_exit("gethostname");}
-printf("%s\n", buf);
-struct hostent * mymachine ;
-struct in_addr ** addr_list;
-if ( ( mymachine = gethostbyname ( buf) ) == NULL )
-  printf ( " Could not resolved Name : %s \n " , buf) ;
-else{
-  printf ( " Name To Be Resolved : %s \n " , mymachine -> h_name ) ;
-  printf ( " Name Length in Bytes : %d \n " , mymachine -> h_length ) ;
-  addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
-  strcpy ( symbolicip , inet_ntoa (* addr_list [0]) ) ;
-  printf ( " %s resolved to %s \n" , mymachine -> h_name , symbolicip ) ;
-}
-//send ip address an port number
-// printf("%s %d\n",symbolicip,strlen(symbolicip)+1 );
-sprintf(buf, "LOG_ON <%s, %d>",symbolicip,port);
-if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-strcpy(buf,"GET_CLIENTS ");
-if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-
-char tmp[500];
-tmp[0]='\0';
-
-while(read(sock, buf, 1) > 0){
-  buf[1]='\0';
-  printf("%s\n",buf);
-  //pirame tin entoli
-  if(buf[0]==' '){
-    printf("%s\n", tmp);
-    //--------------------------------------an ine log_on
-    if(strcmp(tmp,"CLIENT_LIST")==0){
-      int n;
-      // diabazi n
-      tmp[0]='\0';
-      while(read(sock, buf, 1) > 0){
-        if(buf[0]==' ')
-          break;
-        buf[1]='\0';
-        strcat(tmp,buf);
-      }
-      n=atoi(tmp);
-      printf(" %d\n",n );
-
-      for(int i=0;i<n;i++){
-        //diabase to proto <>
-        while(read(sock, buf, 1) > 0){
-          if(buf[0]=='<'){
-            tmp[0]='\0';
-            //diabase ip
-            while(read(sock, buf, 1) > 0){
-              if(buf[0]==',')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("<%s,",tmp);
-            tmp[0]='\0';
-            //diabase port
-            while(read(sock, buf, 1) > 0){
-              if(buf[0]=='>')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%s>\n",tmp);
-          }
-          buf[1]='\0';
-          break;
-        }
-      }
-      break;
-    }
-  }
-  else
-    strcat(tmp,buf);
-
+  //find host name and ip address
+  if(gethostname(buf, 256)!=0)perror_exit("gethostname");
+  printf("%s\n", buf);
+  struct hostent * mymachine ;
+  struct in_addr ** addr_list;
+  //resolve hostname to ip address
+  if ( ( mymachine = gethostbyname ( buf) ) == NULL )
+    printf ( " Could not resolved Name : %s \n " , buf) ;
+  else{
+    printf ( " Name To Be Resolved : %s \n " , mymachine -> h_name ) ;
+    printf ( " Name Length in Bytes : %d \n " , mymachine -> h_length ) ;
+    addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
+    strcpy ( server_symbolicip , inet_ntoa (* addr_list [0]) ) ;
+    printf ( " %s resolved to %s \n" , mymachine -> h_name ,server_symbolicip ) ;
 }
 
 
-while(read(sock, buf, 1) > 0){
-  buf[1]='\0';
-  printf("%s\n",buf);
-  //pirame tin entoli
-  if(buf[0]==' '){
-    printf("%s\n", tmp);
-    //--------------------------------------an ine log_on
-    if(strcmp(tmp,"CLIENT_LIST")==0){
-      int n;
-      // diabazi n
-      tmp[0]='\0';
-      while(read(sock, buf, 1) > 0){
-        if(buf[0]==' ')
-          break;
-        buf[1]='\0';
-        strcat(tmp,buf);
-      }
-      n=atoi(tmp);
-      printf(" %d\n",n );
-
-      for(int i=0;i<n;i++){
-        //diabase to proto <>
-        while(read(sock, buf, 1) > 0){
-          if(buf[0]=='<'){
-            tmp[0]='\0';
-            //diabase ip
-            while(read(sock, buf, 1) > 0){
-              if(buf[0]==',')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("<%s,",tmp);
-            tmp[0]='\0';
-            //diabase port
-            while(read(sock, buf, 1) > 0){
-              if(buf[0]=='>')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%s>\n",tmp);
-          }
+  //send ip address an port number to primary server socket
+  sprintf(buf, "LOG_ON <%s, %s>",server_symbolicip,argv[3]);
+  if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  strcpy(buf,"GET_CLIENTS ");
+  if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  tmp[0]='\0';
+  //rcv CLIENT_LIST
+  while(read(server_sock, buf, 1) > 0){
+    buf[1]='\0';
+    printf("%s\n",buf);
+    //pirame tin entoli
+    if(buf[0]==' '){
+      printf("%s\n", tmp);
+      //--------------------------------------an ine log_on
+      if(strcmp(tmp,"CLIENT_LIST")==0){
+        int n;
+        // diabazi n
+        tmp[0]='\0';
+        while(read(server_sock, buf, 1) > 0){
+          if(buf[0]==' ')
+            break;
           buf[1]='\0';
-          break;
+          strcat(tmp,buf);
         }
-      }
-    }
-    else if(strcmp(tmp,"USER_OFF")){
-      printf("user loged off ");
-      //diabase to proto <>
-      while(read(sock, buf, 1) > 0){
-        if(buf[0]=='<'){
-          tmp[0]='\0';
-          //diabase ip
-          while(read(sock, buf, 1) > 0){
-            if(buf[0]==',')
-              break;
+        n=atoi(tmp);
+        printf(" %d\n",n );
+
+        for(int i=0;i<n;i++){
+          //diabase to proto <>
+          while(read(server_sock, buf, 1) > 0){
+            if(buf[0]=='<'){
+              tmp[0]='\0';
+              //diabase ip
+              while(read(server_sock, buf, 1) > 0){
+                if(buf[0]==',')
+                  break;
+                buf[1]='\0';
+                strcat(tmp,buf);
+              }
+              printf("<%s,",tmp);
+              tmp[0]='\0';
+              //diabase port
+              while(read(server_sock, buf, 1) > 0){
+                if(buf[0]=='>')
+                  break;
+                buf[1]='\0';
+                strcat(tmp,buf);
+              }
+              printf("%s>\n",tmp);
+            }
             buf[1]='\0';
-            strcat(tmp,buf);
+            break;
           }
-          printf("<%s,",tmp);
-          tmp[0]='\0';
-          //diabase port
-          while(read(sock, buf, 1) > 0){
-            if(buf[0]=='>')
-              break;
-            buf[1]='\0';
-            strcat(tmp,buf);
-          }
-          printf("%s>\n",tmp);
         }
-        buf[1]='\0';
         break;
       }
     }
+    else
+      strcat(tmp,buf);
   }
-  else
-    strcat(tmp,buf);
+  close(server_sock);
 
-}
+
+  //TODO na ftiaxni to socket pio prin
+//-------------------------------------------set up my shocket
+  port = atoi(argv[3]);
+  /* Create socket */
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+  server.sin_family = AF_INET;       /* Internet domain */
+  server.sin_addr.s_addr = htonl(INADDR_ANY);
+  server.sin_port = htons(port);      /* The given port */
+  /* Bind socket to address */
+  if (bind(sock, serverptr, sizeof(server)) < 0) perror_exit("bind");
+  /* Listen for connections */
+  if (listen(sock, 5) < 0) perror_exit("listen");
+
+  //------------------------------------------------------waiting for conections
+  printf("Listening for connections to port %d\n", port);
+  while (1){
+    /* accept connection */
+    if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
+    /* Find client's address */
+    //    	if ((rem = gethostbyaddr((char *) &client.sin_addr.s_addr, sizeof(client.sin_addr.s_addr), client.sin_family)) == NULL) {
+    //   	    herror("gethostbyaddr"); exit(1);}
+    //    	printf("Accepted connection from %s\n", rem->h_name);
+    printf("Accepted connection\n");
+    pthread_create(&t, NULL, rcv_child, (void *)&newsock);
+    pthread_create(&t, NULL, send_child, (void *)&newsock);
+    // pthread_join(t , NULL);
+    // close(newsock); /* parent closes socket to client */
+  }
+
 
 
 // sleep(1);
@@ -237,22 +183,78 @@ while(read(sock, buf, 1) > 0){
 // exit(0);
 
 
-
-
-  do {
-    printf("Give input string: ");
-    fgets(buf, sizeof(buf), stdin);	/* Read from stdin*/
-    for(i=0; buf[i] != '\0'; i++) { /* For every char */
-      /* Send i-th character */
-      if (write(sock, buf + i, 1) < 0) perror_exit("write");
-      /* receive i-th character transformed */
-      if (read(sock, buf + i, 1) < 0) perror_exit("read");
-    }
-    printf("Received string: %s", buf);
-  } while (strcmp(buf, "END\n") != 0); /* Finish on "end" */
-
-  close(sock);                 /* Close socket and exit */
   return 0;
+}
+
+//----------------------------------------------------rcv_child
+void *rcv_child(void* newsoc){
+  char buf[256];
+
+
+  return NULL;
+}
+
+//----------------------------------------------------send_child
+void *send_child(void* newsoc){
+  char buf[256];
+
+  int newsock= *(int*)newsoc;
+  char tmp[500];
+  tmp[0]='\0';
+  while(read(newsock, buf, 1) > 0){
+    buf[1]='\0';
+    printf("%s\n",buf);
+    //pirame tin entoli
+    if(buf[0]==' '){
+      printf("%s\n", tmp);
+      //--------------------------------------an ine log_on
+      if(strcmp(tmp,"CLIENT_LIST")==0){
+        int n;
+        // diabazi n
+        tmp[0]='\0';
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]==' ')
+            break;
+          buf[1]='\0';
+          strcat(tmp,buf);
+        }
+        n=atoi(tmp);
+        printf(" %d\n",n );
+
+        for(int i=0;i<n;i++){
+          //diabase to proto <>
+          while(read(newsock, buf, 1) > 0){
+            if(buf[0]=='<'){
+              tmp[0]='\0';
+              //diabase ip
+              while(read(newsock, buf, 1) > 0){
+                if(buf[0]==',')
+                  break;
+                buf[1]='\0';
+                strcat(tmp,buf);
+              }
+              printf("<%s,",tmp);
+              tmp[0]='\0';
+              //diabase port
+              while(read(newsock, buf, 1) > 0){
+                if(buf[0]=='>')
+                  break;
+                buf[1]='\0';
+                strcat(tmp,buf);
+              }
+              printf("%s>\n",tmp);
+            }
+            buf[1]='\0';
+            break;
+          }
+        }
+      }
+    }
+    else
+      strcat(tmp,buf);
+  }
+
+  return NULL;
 }
 
 void perror_exit(char *message){
@@ -265,8 +267,31 @@ void kill_signal_handler(int sig){
   fflush(stdout);
   char buf[100];
 
-  sprintf(buf, "LOG_OFF <%s, %d>",symbolicip,port);
-  if (write(sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  server_sock=connect_to_sock(server_symbolicip,server_port_str);
+  sprintf(buf, "LOG_OFF <%s, %d>",server_symbolicip,port);
+  printf("sending %s\n",buf );
+  if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
 
   exit(0);
+}
+
+int connect_to_sock(char *ipaddr ,char* sock_num){
+  //create socket and connection
+  int sock,port;
+  struct sockaddr_in server;
+  struct sockaddr *serverptr = (struct sockaddr*)&server;
+  struct hostent *rem;
+  /* Create socket */
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+  /* Find server address */
+  if ((rem = gethostbyname(ipaddr)) == NULL) {perror("gethostbyname");exit(1);}
+  port = atoi(sock_num); /*Convert port number to integer*/
+  server.sin_family = AF_INET;       /* Internet domain */
+  memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+  server.sin_port = htons(port);         /* Server port */
+  /* Initiate connection */
+  if (connect(sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  printf("Connecting to %s port %d\n", ipaddr, port);
+
+  return sock;
 }

@@ -13,12 +13,9 @@ Node::Node(){
   data= new iptuple("1","2");
 }
 
-// Node::~Node(){
-//   // cout<<"node del\n";
-//   if(next){
-//     delete next;
-//   }
-// }
+Node::~Node(){
+  delete data;
+}
 
 LinkedList::LinkedList(){
   this->length = 0;
@@ -110,4 +107,14 @@ char* LinkedList::get_string(){
 
 int LinkedList::getlen(){
   return length;
+}
+
+iptuple* LinkedList::get_by_index(unsigned int index){
+  Node* ans=head;
+  if(index>=length)
+    return NULL;
+  else
+    for(unsigned int i=0;i<index;i++)
+      ans=head->next;
+  return ans->data;
 }
