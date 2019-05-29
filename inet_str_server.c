@@ -17,8 +17,6 @@
 #include "linked_list.h"
 #include "tuple.h"
 
-//TODO na stelni useroff
-
 
 using namespace std;
 
@@ -124,7 +122,7 @@ void *child_server(void *newsoc){
 
         iptuple* list_elem=NULL;
         for(unsigned int i=0;(list_elem=list->get_by_index(i))!=NULL;i++){
-          sprintf(buf, "USER_ON <%s, %d>",tmp_tuple.ip,tmp_tuple.port);
+          sprintf(buf, "USER_ON <%s, %s>",tmp_tuple.ip,tmp_tuple.port);
           int tmp_sock=connect_to_sock(list_elem->ip,list_elem->port);
           if(write(tmp_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
           close(tmp_sock);
@@ -144,7 +142,7 @@ void *child_server(void *newsoc){
         if (write(newsock, "CLIENT_LIST ", 12) < 0) perror_exit("write");
         sprintf(tmp, "%d ",list->getlen());
         if (write(newsock, tmp, strlen(tmp)) < 0) perror_exit("write");
-        tmp_buf=list->get_string();
+        tmp_buf=list->get_string();//TODO na min stelni ton eafto tou
         cout<<tmp_buf<<endl;
         if (write(newsock, tmp_buf, strlen(tmp_buf)+1) < 0) perror_exit("write");
 

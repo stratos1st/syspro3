@@ -18,9 +18,10 @@
 #include <sys/file.h>
 #include <sys/prctl.h>
 
-#define LOG_ON 1
+#include "linked_list.h"
+#include "tuple.h"
 
-//TODO na kratai lista apo tuples kai na sbini otan lambani useroff
+#define LOG_ON 1
 
 void perror_exit(char *message);
 void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
@@ -32,6 +33,9 @@ int connect_to_sock(char *ipaddr ,char* sock_num);
 int server_port, server_sock,server,port;
 char server_symbolicip[50],server_port_str[50];
 
+LinkedList* list;
+pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
+
 int main(int argc, char *argv[]){
   char buf[256],tmp[500];
   struct sockaddr_in server;
@@ -40,6 +44,8 @@ int main(int argc, char *argv[]){
   pthread_t t;
   int newsock,sock;
   char symbolicip[50];
+
+  list = new LinkedList();
 
 
 
@@ -97,6 +103,7 @@ int main(int argc, char *argv[]){
       printf("%s\n", tmp);
       //--------------------------------------an ine log_on
       if(strcmp(tmp,"CLIENT_LIST")==0){
+        iptuple tmp_tuple("a","b");
         int n;
         // diabazi n
         tmp[0]='\0';
@@ -122,6 +129,7 @@ int main(int argc, char *argv[]){
                 strcat(tmp,buf);
               }
               printf("<%s,",tmp);
+              strcpy(tmp_tuple.ip,tmp);
               tmp[0]='\0';
               //diabase port
               while(read(server_sock, buf, 1) > 0){
@@ -131,10 +139,15 @@ int main(int argc, char *argv[]){
                 strcat(tmp,buf);
               }
               printf("%s>\n",tmp);
+              strcpy(tmp_tuple.port,tmp);
             }
             buf[1]='\0';
             break;
           }
+          pthread_mutex_lock(&counter_lock);
+          list->add(tmp_tuple);
+          list->print();
+          pthread_mutex_unlock(&counter_lock);
         }
         break;
       }
@@ -143,7 +156,6 @@ int main(int argc, char *argv[]){
       strcat(tmp,buf);
   }
   close(server_sock);
-
 
   //TODO na ftiaxni to socket pio prin
 //-------------------------------------------set up my shocket
@@ -190,14 +202,6 @@ int main(int argc, char *argv[]){
 void *rcv_child(void* newsoc){
   char buf[256];
 
-
-  return NULL;
-}
-
-//----------------------------------------------------send_child
-void *send_child(void* newsoc){
-  char buf[256];
-
   int newsock= *(int*)newsoc;
   char tmp[500];
   tmp[0]='\0';
@@ -207,52 +211,89 @@ void *send_child(void* newsoc){
     //pirame tin entoli
     if(buf[0]==' '){
       printf("%s\n", tmp);
-      //--------------------------------------an ine log_on
-      if(strcmp(tmp,"CLIENT_LIST")==0){
-        int n;
-        // diabazi n
-        tmp[0]='\0';
+      //--------------------------------------an ine USER_ON
+      if(strcmp(tmp,"USER_ON")==0){
+        iptuple tmp_tuple("a","b");
+        //diabase to proto <>
         while(read(newsock, buf, 1) > 0){
-          if(buf[0]==' ')
-            break;
-          buf[1]='\0';
-          strcat(tmp,buf);
-        }
-        n=atoi(tmp);
-        printf(" %d\n",n );
-
-        for(int i=0;i<n;i++){
-          //diabase to proto <>
-          while(read(newsock, buf, 1) > 0){
-            if(buf[0]=='<'){
-              tmp[0]='\0';
-              //diabase ip
-              while(read(newsock, buf, 1) > 0){
-                if(buf[0]==',')
-                  break;
-                buf[1]='\0';
-                strcat(tmp,buf);
-              }
-              printf("<%s,",tmp);
-              tmp[0]='\0';
-              //diabase port
-              while(read(newsock, buf, 1) > 0){
-                if(buf[0]=='>')
-                  break;
-                buf[1]='\0';
-                strcat(tmp,buf);
-              }
-              printf("%s>\n",tmp);
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
             }
-            buf[1]='\0';
-            break;
+            printf("USER_ON <%s,",tmp);
+            strcpy(tmp_tuple.ip,tmp);
+
+            tmp[0]='\0';
+            //diabase port
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%s>\n",tmp);
+            strcpy(tmp_tuple.port,tmp);
           }
+          buf[1]='\0';
+          break;
         }
+        pthread_mutex_lock(&counter_lock);
+        list->add(tmp_tuple);
+        list->print();
+        pthread_mutex_unlock(&counter_lock);
+      }
+      //--------------------------------------an ine USER_OFF
+      else if(strcmp(tmp,"USER_OFF")==0){
+        iptuple tmp_tuple("a","b");
+        //diabase to proto <>
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("USER_OFF <%s,",tmp);
+            strcpy(tmp_tuple.ip,tmp);
+
+            tmp[0]='\0';
+            //diabase port
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%s>\n",tmp);
+            strcpy(tmp_tuple.port,tmp);
+          }
+          buf[1]='\0';
+          break;
+        }
+        pthread_mutex_lock(&counter_lock);
+        list->deleten(tmp_tuple);
+        list->print();
+        pthread_mutex_unlock(&counter_lock);
       }
     }
     else
       strcat(tmp,buf);
   }
+
+  return NULL;
+}
+
+//----------------------------------------------------send_child
+void *send_child(void* newsoc){
+
 
   return NULL;
 }
