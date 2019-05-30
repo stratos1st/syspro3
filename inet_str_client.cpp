@@ -19,7 +19,6 @@
 #include <sys/prctl.h>
 #include <dirent.h>
 
-
 #include "linked_list.h"
 #include "tuple.h"
 
@@ -31,10 +30,12 @@ void perror_exit(char *message);
 void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
 void *rcv_child(void* newsoc);
 void *send_child(void* newsoc);
-int connect_to_sock(char *ipaddr ,char* sock_num);
+int connect_to_sock(char *ipaddr ,char* sock_num, bool true_ip=false);
 int is_file(const char *path);//returns true if path is a file
 char* read_hole_file(char* file_name);// returns pointer to the contents of the file
 int file_sz(char* file_name);// returns the number of characters in the file
+int send_file(char* sub_dir, char* input_dir, int port);
+int rcv_file(char* mirror_dir, int buff_len, int port);
 
 
 //globals for signal handler
@@ -43,6 +44,7 @@ char server_symbolicip[50],server_port_str[50];
 
 LinkedList* list;
 pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
+char input_dir[100];
 
 int main(int argc, char *argv[]){
   char buf[256],tmp[500];
@@ -51,7 +53,7 @@ int main(int argc, char *argv[]){
   struct hostent *rem;
   pthread_t t;
   int newsock,sock;
-  char symbolicip[50],dirname[100];
+  char symbolicip[50];
 
   list = new LinkedList();
 
@@ -66,7 +68,7 @@ int main(int argc, char *argv[]){
   //---------------------------------------------parsing command line argumets------------------------------------------
   int opt;
   /*
-  d dirname
+  d input_dir
   p client port
   s server port
   i server ip
@@ -74,7 +76,7 @@ int main(int argc, char *argv[]){
   while((opt = getopt(argc, argv, "d:p:s:i")) != -1) {
     switch(opt){
       case 'd':
-        strcpy(dirname,optarg);
+        strcpy(input_dir,optarg);
         break;
       case 'p':
         port=atoi(optarg);
@@ -264,6 +266,16 @@ void *rcv_child(void* newsoc){
         list->add(tmp_tuple);
         list->print();
         pthread_mutex_unlock(&counter_lock);
+
+        server_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port,true);
+        printf("sending %s\n",buf );
+        if (write(server_sock, "ABC ", 4) < 0) perror_exit("write");
+
+        if(send_file("", input_dir,newsock)!=0){
+          cerr<< "send_proces failed \n";
+          exit(1);
+        }
+
       }
       //--------------------------------------an ine USER_OFF
       else if(strcmp(tmp,"USER_OFF")==0){
@@ -301,10 +313,19 @@ void *rcv_child(void* newsoc){
         list->print();
         pthread_mutex_unlock(&counter_lock);
       }
+      else if(strcmp(tmp,"ABC")==0){
+        int aaaa=1000;
+        if(rcv_file(input_dir,aaaa,newsock)!=0){
+          cerr<< "rvc_proces failed \n";
+          exit(1);
+        }
+      }
     }
     else
       strcat(tmp,buf);
   }
+
+
 
   return NULL;
 }
@@ -334,7 +355,7 @@ void kill_signal_handler(int sig){
   exit(0);
 }
 
-int connect_to_sock(char *ipaddr ,char* sock_num){
+int connect_to_sock(char *ipaddr ,char* sock_num, bool true_ip){
   //create socket and connection
   int sock,port;
   struct sockaddr_in server;
@@ -342,11 +363,15 @@ int connect_to_sock(char *ipaddr ,char* sock_num){
   struct hostent *rem;
   /* Create socket */
   if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
-  /* Find server address */
-  if ((rem = gethostbyname(ipaddr)) == NULL) {perror("gethostbyname");exit(1);}
+  if(!true_ip){
+    /* Find server address */
+    if ((rem = gethostbyname(ipaddr)) == NULL) {perror("gethostbyname");exit(1);}
+    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+  }
+  else
+    memcpy(&server.sin_addr, ipaddr, strlen(ipaddr));
   port = atoi(sock_num); /*Convert port number to integer*/
   server.sin_family = AF_INET;       /* Internet domain */
-  memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
   server.sin_port = htons(port);         /* Server port */
   /* Initiate connection */
   if (connect(sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
@@ -355,7 +380,7 @@ int connect_to_sock(char *ipaddr ,char* sock_num){
   return sock;
 }
 
-int send_file(int id, char* sub_dir, char* input_dir, int port){
+int send_file(char* sub_dir, char* input_dir, int port){
   DIR *d=NULL;
   char tmp[300];
   bool empty_dir=true;
@@ -379,41 +404,35 @@ int send_file(int id, char* sub_dir, char* input_dir, int port){
         sprintf(tmp, "%s%s",sub_dir,dir->d_name);
         int sz=strlen(tmp);
         sprintf(buffer, "%d",sz);
-        if(write(pipe_send, buffer, 2)<0 && errno!=EINTR){
+        if(write(port, buffer, 2)<0 && errno!=EINTR){
           cerr<< "write send faileda: "<< strerror(errno)<<endl;
           return 1;
         }
-        write_to_logfile(1, 2, logfile);
 
-        if(write(pipe_send, tmp, sz)<0 && errno!=EINTR){
+        if(write(port, tmp, sz)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
-        write_to_logfile(1, sz, logfile);
 
         //write file
         sprintf(tmp, "%s%s%s",input_dir,sub_dir,dir->d_name);
         sz=file_sz(tmp);
         sprintf(buffer, "%d",sz);
-        if(write(pipe_send, buffer, 4)<0 && errno!=EINTR){
+        if(write(port, buffer, 4)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
-        write_to_logfile(1, 4, logfile);
         char* tmpp= read_hole_file(tmp);
-        if(write(pipe_send, tmpp, sz)<0 && errno!=EINTR){
+        if(write(port, tmpp, sz)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
         free(tmpp);
-        write_to_logfile(1, sz, logfile);
-
-        write_to_logfile(3, 0, logfile);
       }
       else{// if directory
         sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
         cout<<"recursive "<<tmp<<endl;
-        send_process(id, tmp, input_dir,logfile);
+        send_file(tmp, input_dir,port);
       }
     }
   }
@@ -425,41 +444,150 @@ int send_file(int id, char* sub_dir, char* input_dir, int port){
     cout<<"\n\nempty dir"<<tmp<<"\n";
     int sz=strlen(tmp);
     sprintf(buffer, "%d",sz);
-    if(write(pipe_send, buffer, 2)<0 && errno!=EINTR){
+    if(write(port, buffer, 2)<0 && errno!=EINTR){
       cerr<< "write send faileda: "<< strerror(errno)<<endl;
       return 1;
     }
-    write_to_logfile(1, 2, logfile);
 
-    if(write(pipe_send, tmp, sz)<0 && errno!=EINTR){
+    if(write(port, tmp, sz)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
-    write_to_logfile(1, sz, logfile);
 
     //write file
     sprintf(buffer, "%d",-1);
-    if(write(pipe_send, buffer, 4)<0 && errno!=EINTR){
+    if(write(port, buffer, 4)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
-    write_to_logfile(1, 4, logfile);
 
-    write_to_logfile(4, 0, logfile);
   }
 
   //write 00 at the end
   if(strcmp(sub_dir,"")==0){
-    if(write(pipe_send, "00", 2)<0 && errno!=EINTR){
+    if(write(port, "00", 2)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
     cout<<"TELIOSA kiego\n";
-    write_to_logfile(1, 2, logfile);
   }
 
   closedir(d);
-  close(pipe_send);
+  close(port);
+
+  return 0;
+}
+
+//handles all the rcv part
+int rcv_file(char* mirror_dir, int buff_len, int port){
+  //---------------------------------------rcv child process
+  struct stat tmp_stat;
+  char tmp[200];
+  char buffer[9999], tmp_buff[buff_len+1],tmp_file_name[9999];
+  //read name len
+  if(read(port, buffer, 2)<0 && errno!=EINTR){
+    cerr<< "read rcv failed: "<< strerror(errno)<<endl;
+    return 1;
+  }
+  buffer[2]='\0';
+  int sz;
+  try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
+  int left_to_read, bytes_to_read;
+  while(sz!=0){
+    //read name
+    buffer[0]='\0';
+    left_to_read=sz;
+    while(left_to_read>0){
+      if(left_to_read-buff_len<0)
+        bytes_to_read=left_to_read;
+      else
+        bytes_to_read=buff_len;
+      if(read(port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
+        cerr<< "read rcv failed: "<< strerror(errno)<<endl;
+        return 1;
+      }
+      tmp_buff[bytes_to_read]='\0';
+      strcat(buffer,tmp_buff);
+      left_to_read-=bytes_to_read;
+    }
+    strcpy(tmp_file_name,buffer);//coppy name for later
+
+    //make dir
+    sprintf(tmp, "%s",tmp_file_name);
+    char *tmpp=strrchr(tmp,'/');
+    if(tmpp!=NULL){// if not in the starting directory 1_mirror
+      *tmpp='\0';
+      char tmp2[100];
+      sprintf(tmp2, "%s/%s",mirror_dir,tmp);
+      if(stat(tmp2, &tmp_stat) != 0)
+        if(mkdir(tmp2, 0766)){
+          cerr <<"!!rcv can not create directory "<<tmp2<<" for file "<<tmp_file_name;perror("\n");
+          return 1;
+        }
+    }
+
+    //read file len
+    if(read(port, buffer, 4)<0 && errno!=EINTR){
+      cerr<< "read rcv failed: "<< strerror(errno)<<endl;
+      return 1;
+    }
+    buffer[4]='\0';
+    try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
+    fflush(stdout);
+
+    if(sz!=-1){//if it is a file
+      //make file
+      FILE *new_file=NULL;
+      sprintf(tmp, "%s/%s",mirror_dir,tmp_file_name);
+      new_file=fopen(tmp, "w");
+      if(new_file==NULL){
+        cerr <<"!rcv can not create "<<tmp<<" file "<<strerror(errno)<<"\n";
+        return 1;
+      }
+
+      //read file
+      buffer[0]='\0';
+      left_to_read=sz;
+      while(left_to_read>0){
+        if(left_to_read-buff_len<0)
+          bytes_to_read=left_to_read;
+        else
+          bytes_to_read=buff_len;
+        if(read(port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
+          cerr<< "read rcv failed: "<< strerror(errno)<<endl;
+          return 1;
+        }
+        tmp_buff[bytes_to_read]='\0';
+        strcat(buffer,tmp_buff);
+        left_to_read-=bytes_to_read;
+      }
+
+      //write to file
+      fprintf(new_file, "%s", buffer);
+      fclose(new_file);
+    }
+    else{//if it is a directory
+      sprintf(tmp, "%s/%s",mirror_dir,strchr(tmp_file_name+2,'/')+1);
+      //cout<<"ine directory "<<tmp<<endl;
+      if(stat(tmp, &tmp_stat) != 0)
+        if(mkdir(tmp, 0766)){
+          cerr <<"!rcv can not create lone directory "<<tmp<<"\n";
+          return 1;
+        }
+    }
+
+    //read next name or 00
+    if(read(port, buffer, 2)<0 && errno!=EINTR){
+      cerr<< "read rcv failed: "<< strerror(errno)<<endl;
+      return 1;
+    }
+    buffer[2]='\0';
+    try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
+  }
+
+  cout<<"rcv ended\n";
+
+  close(port);
 
   return 0;
 }
