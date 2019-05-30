@@ -17,7 +17,6 @@
 #include "linked_list.h"
 #include "tuple.h"
 
-
 using namespace std;
 
 LinkedList* list;
@@ -28,7 +27,6 @@ void perror_exit(char *message);
 void sigchld_handler (int sig);
 int connect_to_sock(char *ipaddr ,char* sock_num);
 
-
 int main(int argc, char *argv[]) {
   int port, sock, newsock;
   struct sockaddr_in server, client;
@@ -36,13 +34,15 @@ int main(int argc, char *argv[]) {
   struct sockaddr *serverptr=(struct sockaddr *)&server;
   struct sockaddr *clientptr=(struct sockaddr *)&client;
   struct hostent *rem;
-  //check for arg errors
+
+  list = new LinkedList();
+
+  //----------------------------------------------check for arg errors
   if (argc != 2) {
     printf("Please give port number\n");
     exit(1);
   }
   port = atoi(argv[1]);
-  list = new LinkedList();
 
 
 
@@ -65,10 +65,6 @@ int main(int argc, char *argv[]) {
     cout<<"a\n";
     /* accept connection */
     if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
-    /* Find client's address */
-    //    	if ((rem = gethostbyaddr((char *) &client.sin_addr.s_addr, sizeof(client.sin_addr.s_addr), client.sin_family)) == NULL) {
-    //   	    herror("gethostbyaddr"); exit(1);}
-    //    	printf("Accepted connection from %s\n", rem->h_name);
     printf("Accepted connection\n");
     pthread_t t;
     pthread_create(&t, NULL, child_server, (void *)&newsock);
@@ -79,6 +75,7 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+//------------------------------------------------------child_server
 void *child_server(void *newsoc){
   printf("thread id = %d\n", pthread_self());
 
