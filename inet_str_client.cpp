@@ -73,7 +73,7 @@ int main(int argc, char *argv[]){
   s server port
   i server ip
   */
-  while((opt = getopt(argc, argv, "d:p:s:i")) != -1) {
+  while((opt = getopt(argc, argv, "d:p:s:i:")) != -1) {
     switch(opt){
       case 'd':
         strcpy(input_dir,optarg);
@@ -88,9 +88,11 @@ int main(int argc, char *argv[]){
       case 'i':
         strcpy(symbolicip,optarg);
         break;
+      default:
+        std::cout << "hgchgchgc" << '\n';
+        break;
     }
   }
-
 
 //-------------------------------------create socket and connection to primary server socket
   /* Create socket */
@@ -121,10 +123,12 @@ int main(int argc, char *argv[]){
 
 
 //------------------------------------------------------------send initial messages to server socket
-  sprintf(buf, "LOG_ON <%s, %s>",server_symbolicip,port);
+  sprintf(buf, "LOG_ON <%s, %d>",server_symbolicip,port);
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  printf("sending logon\n");
   strcpy(buf,"GET_CLIENTS ");
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  printf("sending getclients\n");
   tmp[0]='\0';
   //rcv CLIENT_LIST
   while(read(server_sock, buf, 1) > 0){
@@ -268,10 +272,10 @@ void *rcv_child(void* newsoc){
         pthread_mutex_unlock(&counter_lock);
 
         server_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port,true);
-        printf("sending %s\n",buf );
         if (write(server_sock, "ABC ", 4) < 0) perror_exit("write");
 
-        if(send_file("", input_dir,newsock)!=0){
+        std::cout << "send_file" << '\n';
+        if(send_file("", input_dir,server_sock)!=0){
           cerr<< "send_proces failed \n";
           exit(1);
         }
@@ -314,8 +318,42 @@ void *rcv_child(void* newsoc){
         pthread_mutex_unlock(&counter_lock);
       }
       else if(strcmp(tmp,"ABC")==0){
+
+        iptuple tmp_tuple("a","b");
+        //diabase to proto <>
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("ABC <%s,",tmp);
+            strcpy(tmp_tuple.ip,tmp);
+
+            tmp[0]='\0';
+            //diabase port
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%s>\n",tmp);
+            strcpy(tmp_tuple.port,tmp);
+          }
+          buf[1]='\0';
+          break;
+        }
+
+
+        std::cout << "connecting and rcv" << '\n';
         int aaaa=1000;
-        if(rcv_file(input_dir,aaaa,newsock)!=0){
+        server_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port,true);
+        if(rcv_file(input_dir,aaaa,server_sock)!=0){
           cerr<< "rvc_proces failed \n";
           exit(1);
         }
