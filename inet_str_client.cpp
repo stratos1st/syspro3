@@ -10,6 +10,7 @@
 #include <arpa/inet.h>      //inet_ntoa
 #include <pthread.h>
 #include <iostream>
+#include <netdb.h>
 
 #include <sys/inotify.h>
 #include <sys/wait.h>
@@ -30,17 +31,17 @@ void perror_exit(char *message);
 void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
 void *rcv_child(void* newsoc);
 void *send_child(void* newsoc);
-int connect_to_sock(char *ipaddr ,char* sock_num, bool true_ip=false);
+int connect_to_sock(char *ipaddr ,char* sock_num);
 int is_file(const char *path);//returns true if path is a file
 char* read_hole_file(char* file_name);// returns pointer to the contents of the file
 int file_sz(char* file_name);// returns the number of characters in the file
-int send_file(char* sub_dir, char* input_dir, int port);
-int rcv_file(char* mirror_dir, int buff_len, int port);
+int send_file(char* sub_dir, char* input_dir, int _port);
+int rcv_file(char* mirror_dir, int buff_len, int _port);
 
 
 //globals for signal handler
 int server_port, server_sock,server,port;
-char server_symbolicip[50],server_port_str[50];
+char server_symbolicip[50],server_port_str[50],my_port_str[50];
 
 LinkedList* list;
 pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -80,6 +81,7 @@ int main(int argc, char *argv[]){
         break;
       case 'p':
         port=atoi(optarg);
+        strcpy(my_port_str,optarg);
         break;
       case 's':
         strcpy(server_port_str,optarg);
@@ -225,7 +227,6 @@ int main(int argc, char *argv[]){
 //----------------------------------------------------rcv_child
 void *rcv_child(void* newsoc){
   char buf[256];
-
   int newsock= *(int*)newsoc;
   char tmp[500];
   tmp[0]='\0';
@@ -271,11 +272,13 @@ void *rcv_child(void* newsoc){
         list->print();
         pthread_mutex_unlock(&counter_lock);
 
-        server_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port,true);
-        if (write(server_sock, "ABC ", 4) < 0) perror_exit("write");
+        sleep(1);
+        printf("trying to %s %s\n", tmp_tuple.ip,tmp_tuple.port);
+        int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
+        if (write(tmp_sock, "ABC ", 4) < 0) perror_exit("write");
 
         std::cout << "send_file" << '\n';
-        if(send_file("", input_dir,server_sock)!=0){
+        if(send_file("", input_dir,tmp_sock)!=0){
           cerr<< "send_proces failed \n";
           exit(1);
         }
@@ -319,41 +322,9 @@ void *rcv_child(void* newsoc){
       }
       else if(strcmp(tmp,"ABC")==0){
 
-        iptuple tmp_tuple("a","b");
-        //diabase to proto <>
-        while(read(newsock, buf, 1) > 0){
-          if(buf[0]=='<'){
-            tmp[0]='\0';
-            //diabase ip
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]==',')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("ABC <%s,",tmp);
-            strcpy(tmp_tuple.ip,tmp);
-
-            tmp[0]='\0';
-            //diabase port
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]=='>')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%s>\n",tmp);
-            strcpy(tmp_tuple.port,tmp);
-          }
-          buf[1]='\0';
-          break;
-        }
-
-
         std::cout << "connecting and rcv" << '\n';
         int aaaa=1000;
-        server_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port,true);
-        if(rcv_file(input_dir,aaaa,server_sock)!=0){
+        if(rcv_file(input_dir,aaaa,newsock)!=0){
           cerr<< "rvc_proces failed \n";
           exit(1);
         }
@@ -393,37 +364,44 @@ void kill_signal_handler(int sig){
   exit(0);
 }
 
-int connect_to_sock(char *ipaddr ,char* sock_num, bool true_ip){
+int connect_to_sock(char *ipaddr ,char* sock_num){
+  printf("triyng to connect to %s %s\n",ipaddr,sock_num);
   //create socket and connection
-  int sock,port;
+  int _sock,_port;
   struct sockaddr_in server;
   struct sockaddr *serverptr = (struct sockaddr*)&server;
-  struct hostent *rem;
   /* Create socket */
-  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
-  if(!true_ip){
-    /* Find server address */
-    if ((rem = gethostbyname(ipaddr)) == NULL) {perror("gethostbyname");exit(1);}
-    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+  if ((_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+  /* Find server address */
+  struct hostent *rem;
+  if ((rem = gethostbyname(ipaddr)) == NULL) {
+    printf("%s\n",hstrerror(h_errno));
+    perror("gethostbyname");
+    exit(1);
   }
-  else
-    memcpy(&server.sin_addr, ipaddr, strlen(ipaddr));
-  port = atoi(sock_num); /*Convert port number to integer*/
+  memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+  _port = atoi(sock_num); /*Convert port number to integer*/
   server.sin_family = AF_INET;       /* Internet domain */
-  server.sin_port = htons(port);         /* Server port */
+  server.sin_port = htons(_port);         /* Server port */
   /* Initiate connection */
-  if (connect(sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
-  printf("Connecting to %s port %d\n", ipaddr, port);
+  if (connect(_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  printf("Connecting to %s port %d\n", ipaddr, _port);
 
-  return sock;
+  return _sock;
 }
 
-int send_file(char* sub_dir, char* input_dir, int port){
+int send_file(char* sub_dir, char* input_dir, int _port){
   DIR *d=NULL;
   char tmp[300];
   bool empty_dir=true;
   struct dirent *dir;
   sprintf(tmp,"%s%s",input_dir,sub_dir);
+
+
+  printf("entering send files sub_dir: %s input_dir: %s _port: %d\n",sub_dir,input_dir,_port);
+
+
+
   if((d= opendir(tmp))==NULL){
     cerr<< "opendir send failed: "<< strerror(errno)<<endl;
     //return 1;
@@ -442,12 +420,12 @@ int send_file(char* sub_dir, char* input_dir, int port){
         sprintf(tmp, "%s%s",sub_dir,dir->d_name);
         int sz=strlen(tmp);
         sprintf(buffer, "%d",sz);
-        if(write(port, buffer, 2)<0 && errno!=EINTR){
+        if(write(_port, buffer, 2)<0 && errno!=EINTR){
           cerr<< "write send faileda: "<< strerror(errno)<<endl;
           return 1;
         }
 
-        if(write(port, tmp, sz)<0 && errno!=EINTR){
+        if(write(_port, tmp, sz)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
@@ -456,12 +434,12 @@ int send_file(char* sub_dir, char* input_dir, int port){
         sprintf(tmp, "%s%s%s",input_dir,sub_dir,dir->d_name);
         sz=file_sz(tmp);
         sprintf(buffer, "%d",sz);
-        if(write(port, buffer, 4)<0 && errno!=EINTR){
+        if(write(_port, buffer, 4)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
         char* tmpp= read_hole_file(tmp);
-        if(write(port, tmpp, sz)<0 && errno!=EINTR){
+        if(write(_port, tmpp, sz)<0 && errno!=EINTR){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
@@ -470,7 +448,7 @@ int send_file(char* sub_dir, char* input_dir, int port){
       else{// if directory
         sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
         cout<<"recursive "<<tmp<<endl;
-        send_file(tmp, input_dir,port);
+        send_file(tmp, input_dir,_port);
       }
     }
   }
@@ -482,19 +460,19 @@ int send_file(char* sub_dir, char* input_dir, int port){
     cout<<"\n\nempty dir"<<tmp<<"\n";
     int sz=strlen(tmp);
     sprintf(buffer, "%d",sz);
-    if(write(port, buffer, 2)<0 && errno!=EINTR){
+    if(write(_port, buffer, 2)<0 && errno!=EINTR){
       cerr<< "write send faileda: "<< strerror(errno)<<endl;
       return 1;
     }
 
-    if(write(port, tmp, sz)<0 && errno!=EINTR){
+    if(write(_port, tmp, sz)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
 
     //write file
     sprintf(buffer, "%d",-1);
-    if(write(port, buffer, 4)<0 && errno!=EINTR){
+    if(write(_port, buffer, 4)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
@@ -503,7 +481,7 @@ int send_file(char* sub_dir, char* input_dir, int port){
 
   //write 00 at the end
   if(strcmp(sub_dir,"")==0){
-    if(write(port, "00", 2)<0 && errno!=EINTR){
+    if(write(_port, "00", 2)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
@@ -511,19 +489,19 @@ int send_file(char* sub_dir, char* input_dir, int port){
   }
 
   closedir(d);
-  close(port);
 
   return 0;
 }
 
 //handles all the rcv part
-int rcv_file(char* mirror_dir, int buff_len, int port){
+int rcv_file(char* mirror_dir, int buff_len, int _port){
+  printf("entering rcv files mirror_dir: %s port: %d\n",mirror_dir,_port);
   //---------------------------------------rcv child process
   struct stat tmp_stat;
   char tmp[200];
   char buffer[9999], tmp_buff[buff_len+1],tmp_file_name[9999];
   //read name len
-  if(read(port, buffer, 2)<0 && errno!=EINTR){
+  if(read(_port, buffer, 2)<0 && errno!=EINTR){
     cerr<< "read rcv failed: "<< strerror(errno)<<endl;
     return 1;
   }
@@ -531,6 +509,13 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
   int sz;
   try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
   int left_to_read, bytes_to_read;
+
+
+  printf("size: %d\n",_port);
+
+
+
+
   while(sz!=0){
     //read name
     buffer[0]='\0';
@@ -540,7 +525,7 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
         bytes_to_read=left_to_read;
       else
         bytes_to_read=buff_len;
-      if(read(port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
+      if(read(_port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
         cerr<< "read rcv failed: "<< strerror(errno)<<endl;
         return 1;
       }
@@ -565,7 +550,7 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
     }
 
     //read file len
-    if(read(port, buffer, 4)<0 && errno!=EINTR){
+    if(read(_port, buffer, 4)<0 && errno!=EINTR){
       cerr<< "read rcv failed: "<< strerror(errno)<<endl;
       return 1;
     }
@@ -591,7 +576,7 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
           bytes_to_read=left_to_read;
         else
           bytes_to_read=buff_len;
-        if(read(port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
+        if(read(_port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
           cerr<< "read rcv failed: "<< strerror(errno)<<endl;
           return 1;
         }
@@ -615,7 +600,7 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
     }
 
     //read next name or 00
-    if(read(port, buffer, 2)<0 && errno!=EINTR){
+    if(read(_port, buffer, 2)<0 && errno!=EINTR){
       cerr<< "read rcv failed: "<< strerror(errno)<<endl;
       return 1;
     }
@@ -625,7 +610,6 @@ int rcv_file(char* mirror_dir, int buff_len, int port){
 
   cout<<"rcv ended\n";
 
-  close(port);
 
   return 0;
 }
