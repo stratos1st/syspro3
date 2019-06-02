@@ -1,4 +1,3 @@
-/*inet_str_server.c: Internet stream sockets server */
 #include <iostream>
 #include <stdio.h>
 #include <sys/wait.h>	     /* sockets */
@@ -35,12 +34,18 @@ int main(int argc, char *argv[]) {
 
   list = new LinkedList();
 
-  //----------------------------------------------check for arg errors
-  if (argc != 2) {
-    printf("Please give port number\n");
-    exit(1);
+//---------------------------------------------parsing command line argumets------------------------------------------
+  int opt;
+  /*
+  p server port
+  */
+  while((opt = getopt(argc, argv, "p:")) != -1) {
+    switch(opt){
+      case 'p':
+        port=atoi(optarg);
+        break;
+    }
   }
-  port = atoi(argv[1]);
 
 
 
@@ -72,7 +77,7 @@ int main(int argc, char *argv[]) {
 
 //handles a connection
 void *child_server(void *newsoc){
-  printf("child thread id = %d\n", pthread_self());
+  printf("child thread id = %lu\n", pthread_self());
 
   int newsock= *(int*)newsoc;
   char buf[256],tmp[50];
