@@ -23,40 +23,38 @@
 #include "linked_list.h"
 #include "tuple.h"
 
-#define LOG_ON 1
-
 using namespace std;
 
-void perror_exit(char *message);
-void kill_signal_handler(int sig);//main signal handler for SIGQUIT and SIGINT
-void *rcv_child(void* newsoc);
-void *send_child(void* newsoc);
-int connect_to_sock(char *ipaddr ,char* sock_num);
+void perror_exit(const char *message);// print error and exit
+void kill_signal_handler(int sig);//signal handler for SIGQUIT and SIGINT
+void *rcv_child(void* newsoc);//thread handles all incoming messages from my my_port
+void *send_child(void* newsoc);//thread
+int send_file(char* sub_dir, char* input_dir, int _port);//handles sending protocol
+int rcv_file(char* mirror_dir, int buff_len, int _port);//handles rcving protocol
+int connect_to_sock(char *ipaddr ,char* sock_num);//connects togiven socket
 int is_file(const char *path);//returns true if path is a file
 char* read_hole_file(char* file_name);// returns pointer to the contents of the file
 int file_sz(char* file_name);// returns the number of characters in the file
-int send_file(char* sub_dir, char* input_dir, int _port);
-int rcv_file(char* mirror_dir, int buff_len, int _port);
-
 
 //globals for signal handler
-int server_port, server_sock,server,port;
-char server_symbolicip[50],server_port_str[50],my_port_str[50];
+int server_port, server_sock, my_port;
+char server_symbolicip[50], server_port_str[50], my_port_str[50], my_symbolicip[50];
 
-LinkedList* list;
-pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
-char input_dir[100];
+LinkedList* list;//list holding all client tuples
+pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;//locks list operations
+char input_dir[100];//my directory
+
 
 int main(int argc, char *argv[]){
-  char buf[256],tmp[500];
+  char buf[256],tmp[500];//tmp buffers for read and wrie
   struct sockaddr_in server;
   struct sockaddr *serverptr = (struct sockaddr*)&server;
   struct hostent *rem;
   pthread_t t;
-  int newsock,sock;
   char symbolicip[50];
 
   list = new LinkedList();
+  gethostname(my_symbolicip, sizeof(my_symbolicip));
 
   //asigning signal handlers
   static struct sigaction act2;
@@ -66,7 +64,7 @@ int main(int argc, char *argv[]){
   sigaction (SIGINT, &act2, NULL);
 
 
-  //---------------------------------------------parsing command line argumets------------------------------------------
+//---------------------------------------------parsing command line argumets------------------------------------------
   int opt;
   /*
   d input_dir
@@ -80,7 +78,7 @@ int main(int argc, char *argv[]){
         strcpy(input_dir,optarg);
         break;
       case 'p':
-        port=atoi(optarg);
+        my_port=atoi(optarg);
         strcpy(my_port_str,optarg);
         break;
       case 's':
@@ -106,33 +104,41 @@ int main(int argc, char *argv[]){
   server.sin_port = htons(server_port);         /* Server port */
   /* Initiate connection */
   if (connect(server_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
-  printf("Connecting to %s port %d\n", symbolicip, server_port);
+  printf("Connecting to server %s port %d\n", symbolicip, server_port);
   //find host name and ip address
   if(gethostname(buf, 256)!=0)perror_exit("gethostname");
   printf("%s\n", buf);
   struct hostent * mymachine ;
   struct in_addr ** addr_list;
   //resolve hostname to ip address
-  if ( ( mymachine = gethostbyname ( buf) ) == NULL )
+  if ( ( mymachine = gethostbyname ( buf) ) == NULL ){
     printf ( " Could not resolved Name : %s \n " , buf) ;
+    exit(1);
+  }
   else{
-    printf ( " Name To Be Resolved : %s \n " , mymachine -> h_name ) ;
-    printf ( " Name Length in Bytes : %d \n " , mymachine -> h_length ) ;
     addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
     strcpy ( server_symbolicip , inet_ntoa (* addr_list [0]) ) ;
-    printf ( " %s resolved to %s \n" , mymachine -> h_name ,server_symbolicip ) ;
+    printf ( "server name %s resolved to %s \n" , mymachine -> h_name ,server_symbolicip ) ;
 }
 
 
-//------------------------------------------------------------send initial messages to server socket
-  sprintf(buf, "LOG_ON <%s, %d>",server_symbolicip,port);
+//------------------------------------------------send initial messages to server socket
+  /*
+  1 send LOG_ON
+  2 send GET_CLIENTS
+  3 rcv CLIENT_LIST
+  4 add clients to list
+  5 close connection to server port
+  */
+  printf("sending LON_ON\n");
+  sprintf(buf, "LOG_ON <%s, %d>",my_symbolicip,my_port);
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-  printf("sending logon\n");
+  printf("sending GET_CLIENTS\n");
   strcpy(buf,"GET_CLIENTS ");
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-  printf("sending getclients\n");
   tmp[0]='\0';
   //rcv CLIENT_LIST
+  printf("rcving from server:\n");
   while(read(server_sock, buf, 1) > 0){
     buf[1]='\0';
     printf("%s\n",buf);
@@ -156,7 +162,7 @@ int main(int argc, char *argv[]){
 
         for(int i=0;i<n;i++){
           //diabase to proto <>
-          while(read(server_sock, buf, 1) > 0){
+          while(read(server_sock, buf, 1) > 0){//mpeni mono mia fora
             if(buf[0]=='<'){
               tmp[0]='\0';
               //diabase ip
@@ -176,16 +182,18 @@ int main(int argc, char *argv[]){
                 buf[1]='\0';
                 strcat(tmp,buf);
               }
-              printf("%s>\n",tmp);
+              printf("%s> ",tmp);
               strcpy(tmp_tuple.port,tmp);
             }
             buf[1]='\0';
             break;
           }
-          pthread_mutex_lock(&counter_lock);
+          printf("\n");
+          //update list
+          pthread_mutex_lock(&list_lock);
           list->add(tmp_tuple);
           list->print();
-          pthread_mutex_unlock(&counter_lock);
+          pthread_mutex_unlock(&list_lock);
         }
         break;
       }
@@ -194,48 +202,52 @@ int main(int argc, char *argv[]){
       strcat(tmp,buf);
   }
   close(server_sock);
+  printf("closing server conection\n");
 
-  //TODO na ftiaxni to socket pio prin
+  //FIXME na ftiaxni to socket pio prin
 //-----------------------------------------------------------set up my shocket
+  int sock;
   /* Create socket */
   if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
   server.sin_family = AF_INET;       /* Internet domain */
   server.sin_addr.s_addr = htonl(INADDR_ANY);
-  server.sin_port = htons(port);      /* The given port */
+  server.sin_port = htons(my_port);      /* The given port */
   /* Bind socket to address */
   if (bind(sock, serverptr, sizeof(server)) < 0) perror_exit("bind");
   /* Listen for connections */
   if (listen(sock, 5) < 0) perror_exit("listen");
 
-  //------------------------------------------------------waiting for conections
-  //from other clients or server
-  printf("Listening for connections to port %d\n", port);
+//------------------------------------------------------waiting for conections to my socket
+//from other clients or server
+  printf("Listening for connections to my port %d\n", my_port);
+  int newsock;
   while (1){
     /* accept connection */
     if ((newsock = accept(sock, NULL, NULL)) < 0) perror_exit("accept");
-    printf("Accepted connection\n");
+    printf("Accepted connection to my port\n");
     pthread_create(&t, NULL, rcv_child, (void *)&newsock);
-    pthread_create(&t, NULL, send_child, (void *)&newsock);
-    // pthread_join(t , NULL);
-    // close(newsock); /* parent closes socket to client */
+    //pthread_create(&t, NULL, send_child, (void *)&newsock);
   }
 
 
   return 0;
 }
 
-//----------------------------------------------------rcv_child
-void *rcv_child(void* newsoc){
+//handles all incoming messages from my port
+void *rcv_child(void* newsoc){//TODO close connection when apropriate
+  printf("\nentering rcv child\n");
   char buf[256];
   int newsock= *(int*)newsoc;
   char tmp[500];
   tmp[0]='\0';
+
+  //reading fron connection
   while(read(newsock, buf, 1) > 0){
     buf[1]='\0';
     printf("%s\n",buf);
     //pirame tin entoli
     if(buf[0]==' '){
-      printf("%s\n", tmp);
+      printf(" rcved %s ", tmp);
       //--------------------------------------an ine USER_ON
       if(strcmp(tmp,"USER_ON")==0){
         iptuple tmp_tuple("a","b");
@@ -250,7 +262,7 @@ void *rcv_child(void* newsoc){
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf("USER_ON <%s,",tmp);
+            printf(" <%s,",tmp);
             strcpy(tmp_tuple.ip,tmp);
 
             tmp[0]='\0';
@@ -267,28 +279,29 @@ void *rcv_child(void* newsoc){
           buf[1]='\0';
           break;
         }
-        pthread_mutex_lock(&counter_lock);
+        //updating list
+        pthread_mutex_lock(&list_lock);
         list->add(tmp_tuple);
         list->print();
-        pthread_mutex_unlock(&counter_lock);
+        pthread_mutex_unlock(&list_lock);
 
-        sleep(1);
-        printf("trying to %s %s\n", tmp_tuple.ip,tmp_tuple.port);
+        sleep(1);//FIXME
         int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
+        printf("sending ABC and files\n" );
         if (write(tmp_sock, "ABC ", 4) < 0) perror_exit("write");
 
-        std::cout << "send_file" << '\n';
         if(send_file("", input_dir,tmp_sock)!=0){
           cerr<< "send_proces failed \n";
           exit(1);
         }
 
+        tmp[0]='\0';
       }
       //--------------------------------------an ine USER_OFF
       else if(strcmp(tmp,"USER_OFF")==0){
         iptuple tmp_tuple("a","b");
         //diabase to proto <>
-        while(read(newsock, buf, 1) > 0){
+        while(read(newsock, buf, 1) > 0){//beni mia fora
           if(buf[0]=='<'){
             tmp[0]='\0';
             //diabase ip
@@ -298,7 +311,7 @@ void *rcv_child(void* newsoc){
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf("USER_OFF <%s,",tmp);
+            printf(" <%s,",tmp);
             strcpy(tmp_tuple.ip,tmp);
 
             tmp[0]='\0';
@@ -312,22 +325,24 @@ void *rcv_child(void* newsoc){
             printf("%s>\n",tmp);
             strcpy(tmp_tuple.port,tmp);
           }
-          buf[1]='\0';
+          buf[1]='\0';//FIXEME mpori na 8eli 0
           break;
         }
-        pthread_mutex_lock(&counter_lock);
+        //updating list
+        pthread_mutex_lock(&list_lock);
         list->deleten(tmp_tuple);
         list->print();
-        pthread_mutex_unlock(&counter_lock);
+        pthread_mutex_unlock(&list_lock);
+        tmp[0]='\0';
       }
+      //--------------------------------------an ine
       else if(strcmp(tmp,"ABC")==0){
-
-        std::cout << "connecting and rcv" << '\n';
         int aaaa=1000;
         if(rcv_file(input_dir,aaaa,newsock)!=0){
           cerr<< "rvc_proces failed \n";
           exit(1);
         }
+        tmp[0]='\0';
       }
     }
     else
@@ -335,35 +350,41 @@ void *rcv_child(void* newsoc){
   }
 
 
-
   return NULL;
 }
 
-//----------------------------------------------------send_child
+//thread handles all incoming messages from my port
 void *send_child(void* newsoc){
 
 
   return NULL;
 }
 
-void perror_exit(char *message){
+// print error and exit
+void perror_exit(const char *message){
   perror(message);
   exit(EXIT_FAILURE);
 }
 
-//main signal handler for SIGQUIT and SIGINT
+//signal handler for SIGQUIT and SIGINT
 void kill_signal_handler(int sig){
   fflush(stdout);
   char buf[100];
 
+  printf("Client wants to exit\n");
   server_sock=connect_to_sock(server_symbolicip,server_port_str);
-  sprintf(buf, "LOG_OFF <%s, %d>",server_symbolicip,port);
+  //sending LOG_OFF to serbver
+  sprintf(buf, "LOG_OFF <%s, %d>",my_symbolicip,my_port);
   printf("sending %s\n",buf );
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+  printf("closing connection to server\n");
+  close(server_sock);
 
+  printf("Client exiting\n");
   exit(0);
 }
 
+//connects togiven socket
 int connect_to_sock(char *ipaddr ,char* sock_num){
   printf("triyng to connect to %s %s\n",ipaddr,sock_num);
   //create socket and connection
@@ -385,11 +406,12 @@ int connect_to_sock(char *ipaddr ,char* sock_num){
   server.sin_port = htons(_port);         /* Server port */
   /* Initiate connection */
   if (connect(_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
-  printf("Connecting to %s port %d\n", ipaddr, _port);
+  printf("Connected to %s port %d\n", ipaddr, _port);
 
   return _sock;
 }
 
+//handles sending protocol
 int send_file(char* sub_dir, char* input_dir, int _port){
   DIR *d=NULL;
   char tmp[300];
@@ -397,11 +419,7 @@ int send_file(char* sub_dir, char* input_dir, int _port){
   struct dirent *dir;
   sprintf(tmp,"%s%s",input_dir,sub_dir);
 
-
-  printf("entering send files sub_dir: %s input_dir: %s _port: %d\n",sub_dir,input_dir,_port);
-
-
-
+  printf("entering send files sub_dir: %s input_dir: %s\n",sub_dir,input_dir);
   if((d= opendir(tmp))==NULL){
     cerr<< "opendir send failed: "<< strerror(errno)<<endl;
     //return 1;
@@ -414,7 +432,7 @@ int send_file(char* sub_dir, char* input_dir, int _port){
       if(is_file(tmp)){// if file
         empty_dir=false;
         char buffer[9999];
-        cout<<"for "<<tmp << '\n';
+        printf("for %s \n",tmp);
 
         //write name
         sprintf(tmp, "%s%s",sub_dir,dir->d_name);
@@ -447,7 +465,7 @@ int send_file(char* sub_dir, char* input_dir, int _port){
       }
       else{// if directory
         sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
-        cout<<"recursive "<<tmp<<endl;
+        printf("recursive %s \n",tmp);
         send_file(tmp, input_dir,_port);
       }
     }
@@ -457,7 +475,7 @@ int send_file(char* sub_dir, char* input_dir, int _port){
     char buffer[9999];
     //write name
     sprintf(tmp,"%s",sub_dir);
-    cout<<"\n\nempty dir"<<tmp<<"\n";
+    printf("\n\n empty dir %s \n",tmp);
     int sz=strlen(tmp);
     sprintf(buffer, "%d",sz);
     if(write(_port, buffer, 2)<0 && errno!=EINTR){
@@ -485,7 +503,7 @@ int send_file(char* sub_dir, char* input_dir, int _port){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
-    cout<<"TELIOSA kiego\n";
+    printf("sending files ended\n");
   }
 
   closedir(d);
@@ -493,9 +511,9 @@ int send_file(char* sub_dir, char* input_dir, int _port){
   return 0;
 }
 
-//handles all the rcv part
+//handles rcving protocol
 int rcv_file(char* mirror_dir, int buff_len, int _port){
-  printf("entering rcv files mirror_dir: %s port: %d\n",mirror_dir,_port);
+  printf("entering rcv files mirror_dir: %s\n",mirror_dir);
   //---------------------------------------rcv child process
   struct stat tmp_stat;
   char tmp[200];
@@ -509,12 +527,6 @@ int rcv_file(char* mirror_dir, int buff_len, int _port){
   int sz;
   try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
   int left_to_read, bytes_to_read;
-
-
-  printf("size: %d\n",_port);
-
-
-
 
   while(sz!=0){
     //read name
@@ -608,8 +620,7 @@ int rcv_file(char* mirror_dir, int buff_len, int _port){
     try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
   }
 
-  cout<<"rcv ended\n";
-
+  printf("rcving files ended\n");
 
   return 0;
 }
