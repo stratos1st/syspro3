@@ -85,7 +85,7 @@ void *child_server(void *newsoc){
 
   while(read(newsock, buf, 1) > 0){
     buf[1]='\0';
-    printf("%s\n",buf);
+    //printf("%s\n",buf);
     //pirame tin entoli
     if(buf[0]==' '){
       printf("rcved %s ", tmp);
@@ -146,6 +146,11 @@ void *child_server(void *newsoc){
         tmp_buf=list->get_string();//TODO na min stelni ton eafto tou
         if (write(newsock, tmp_buf, strlen(tmp_buf)+1) < 0) perror_exit("write");
         printf(" %s\n",tmp_buf);
+
+        sleep(1);//!!!den ine apolita sosto
+        printf("closing connection to client and terminating thread\n");
+        close(newsock);
+        return NULL;
       }
       //--------------------------------------an ine LOG_OFF
       else if(strcmp(tmp,"LOG_OFF")==0){
@@ -193,7 +198,9 @@ void *child_server(void *newsoc){
         }
 
         //end child (he loged off)
-        printf("Ending child proccess\n");
+        sleep(1);//!!!den ine apolita sosto
+        printf("closing connection to client and terminating thread\n");
+        close(newsock);
         return NULL;
       }
       tmp[0]='\0';

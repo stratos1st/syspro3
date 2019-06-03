@@ -24,14 +24,17 @@
 
 using namespace std;
 
-//TODO buffersz workerthreads
+//TODO buffersz workerthreads version
+//FIXME o tritos pelatis mpori na kani 2 thread gia to idio connection
+//tote kolai ke den stelni stous allous
+//h prospa8i na sindeth sto a,b ke termatizi anomala
 
 void perror_exit(const char *message);// print error and exit
 void kill_signal_handler(int sig);//signal handler for SIGQUIT and SIGINT
 void *rcv_child(void* newsoc);//thread handles all incoming messages from my my_port
 void *send_child(void* newsoc);//thread
 int send_file(char* sub_dir, char* input_dir, int _port);//handles sending protocol
-int rcv_file(char* mirror_dir, int buff_len, int _port);//handles rcving protocol
+void *primary_server_messages(void* none);//thread handles initial messages to server
 int connect_to_sock(char *ipaddr ,char* sock_num);//connects togiven socket
 int is_file(const char *path);//returns true if path is a file
 char* read_hole_file(char* file_name);// returns pointer to the contents of the file
@@ -51,12 +54,9 @@ char input_dir[100];//my directory
 
 
 int main(int argc, char *argv[]){
-  char buf[256],tmp[500];//tmp buffers for read and wrie
   struct sockaddr_in server;
   struct sockaddr *serverptr = (struct sockaddr*)&server;
-  struct hostent *rem;
   pthread_t t;
-  char symbolicip[50];
 
   list = new LinkedList();
   gethostname(my_symbolicip, sizeof(my_symbolicip));
@@ -90,7 +90,7 @@ int main(int argc, char *argv[]){
         server_port=atoi(optarg);
         break;
       case 'i':
-        strcpy(symbolicip,optarg);
+        strcpy(server_symbolicip,optarg);
         break;
       default:
         std::cout << "hgchgchgc" << '\n';
@@ -98,117 +98,9 @@ int main(int argc, char *argv[]){
     }
   }
 
-//-------------------------------------create socket and connection to primary server socket
-  /* Create socket */
-  if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
-  /* Find server address */
-  if ((rem = gethostbyname(symbolicip)) == NULL) {perror("gethostbyname");exit(1);}
-  server.sin_family = AF_INET;       /* Internet domain */
-  memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
-  server.sin_port = htons(server_port);         /* Server port */
-  /* Initiate connection */
-  if (connect(server_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
-  printf("Connecting to server %s port %d\n", symbolicip, server_port);
-  //find host name and ip address
-  if(gethostname(buf, 256)!=0)perror_exit("gethostname");
-  printf("%s\n", buf);
-  struct hostent * mymachine ;
-  struct in_addr ** addr_list;
-  //resolve hostname to ip address
-  if ( ( mymachine = gethostbyname ( buf) ) == NULL ){
-    printf ( " Could not resolved Name : %s \n " , buf) ;
-    exit(1);
-  }
-  else{
-    addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
-    strcpy ( server_symbolicip , inet_ntoa (* addr_list [0]) ) ;
-    printf ( "server name %s resolved to %s \n" , mymachine -> h_name ,server_symbolicip ) ;
-}
+  pthread_create(&t, NULL, primary_server_messages, NULL);
+  // pthread_join(t, NULL);
 
-
-//------------------------------------------------send initial messages to server socket
-  /*
-  1 send LOG_ON
-  2 send GET_CLIENTS
-  3 rcv CLIENT_LIST
-  4 add clients to list
-  5 close connection to server port
-  */
-  printf("sending LON_ON\n");
-  sprintf(buf, "LOG_ON <%s, %d>",my_symbolicip,my_port);
-  if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-  printf("sending GET_CLIENTS\n");
-  strcpy(buf,"GET_CLIENTS ");
-  if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-  tmp[0]='\0';
-  //rcv CLIENT_LIST
-  printf("rcving from server:\n");
-  while(read(server_sock, buf, 1) > 0){
-    buf[1]='\0';
-    printf("%s\n",buf);
-    //pirame tin entoli
-    if(buf[0]==' '){
-      printf("%s\n", tmp);
-      //--------------------------------------an ine CLIENT_LIST
-      if(strcmp(tmp,"CLIENT_LIST")==0){
-        iptuple tmp_tuple("a","b");
-        int n;
-        // diabazi n
-        tmp[0]='\0';
-        while(read(server_sock, buf, 1) > 0){
-          if(buf[0]==' ')
-            break;
-          buf[1]='\0';
-          strcat(tmp,buf);
-        }
-        n=atoi(tmp);
-        printf(" %d\n",n );
-
-        for(int i=0;i<n;i++){
-          //diabase to proto <>
-          while(read(server_sock, buf, 1) > 0){//mpeni mono mia fora
-            if(buf[0]=='<'){
-              tmp[0]='\0';
-              //diabase ip
-              while(read(server_sock, buf, 1) > 0){
-                if(buf[0]==',')
-                  break;
-                buf[1]='\0';
-                strcat(tmp,buf);
-              }
-              printf("<%s,",tmp);
-              strcpy(tmp_tuple.ip,tmp);
-              tmp[0]='\0';
-              //diabase port
-              while(read(server_sock, buf, 1) > 0){
-                if(buf[0]=='>')
-                  break;
-                buf[1]='\0';
-                strcat(tmp,buf);
-              }
-              printf("%s> ",tmp);
-              strcpy(tmp_tuple.port,tmp);
-            }
-            buf[1]='\0';
-            break;
-          }
-          printf("\n");
-          //update list
-          pthread_mutex_lock(&list_lock);
-          list->add(tmp_tuple);
-          list->print();
-          pthread_mutex_unlock(&list_lock);
-        }
-        break;
-      }
-    }
-    else
-      strcat(tmp,buf);
-  }
-  close(server_sock);
-  printf("closing server conection\n");
-
-  //FIXME na ftiaxni to socket pio prin
 //-----------------------------------------------------------set up my shocket
   int sock;
   /* Create socket */
@@ -239,21 +131,19 @@ int main(int argc, char *argv[]){
 
 //handles all incoming messages from my port
 void *rcv_child(void* newsoc){//TODO close connection when apropriate
-  printf("\nentering rcv child\n");
   char buf[256];
   int newsock= *(int*)newsoc;
+  printf("%lu\t\tentering rcv child %d\n",pthread_self(),newsock);
   char tmp[500];
-  pthread_t t;
-
   tmp[0]='\0';
 
   //reading fron connection
   while(read(newsock, buf, 1) > 0){
     buf[1]='\0';
-    printf("%s\n",buf);
+    //printf("%s\n",buf);
     //pirame tin entoli
     if(buf[0]==' '){
-      printf(" rcved %s ", tmp);
+      printf("%lu\t\trcved %s ",pthread_self(), tmp);
       //--------------------------------------an ine USER_ON
       if(strcmp(tmp,"USER_ON")==0){
         iptuple tmp_tuple("a","b");
@@ -268,7 +158,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf(" <%s,",tmp);
+            printf("%lu\t\t\t<%s,",pthread_self(),tmp);
             strcpy(tmp_tuple.ip,tmp);
 
             tmp[0]='\0';
@@ -279,7 +169,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf("%s>\n",tmp);
+            printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
             strcpy(tmp_tuple.port,tmp);
           }
           buf[1]='\0';
@@ -291,28 +181,22 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         list->print();
         pthread_mutex_unlock(&list_lock);
 
-        sleep(1);//FIXME
+        sleep(1);//!!!den ine apolita sosto
         //try to connect to client
         int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
         //send GET_FILE_LIST
-        printf("sending GET_FILE_LIST " );
-        if (write(tmp_sock, "GET_FILE_LIST ", 14) < 0) perror_exit("write");
-        //send n
         char aa[50];
-        sprintf(aa, "%d ",get_files_no("", input_dir));
-        printf("%s\n",aa );
+        sprintf(aa, "GET_FILE_LIST <%s, %s>",my_symbolicip,my_port_str);
+        printf("%lu\t\tsending %s\n",pthread_self(),aa );
         if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
-        //send file_tuple list
-        //pthread_create(&t, NULL, send_child, (void *)&newsock);
-        if(send_file_list("", input_dir,tmp_sock)!=0){
-          cerr<< "send_proces failed \n";
-          exit(1);
-        }
-        printf("closing connection\n");
+        printf("%lu\t\tclosing connection\n",pthread_self());
+        sleep(1);//!!!den ine apolita sosto
         close(tmp_sock);
 
-
-        tmp[0]='\0';
+        sleep(1);//!!!den ine apolita sosto
+        printf("%lu\t\tclosing connection to server and terminating thread\n",pthread_self());
+        close(newsock);
+        return NULL;
       }
       //--------------------------------------an ine USER_OFF
       else if(strcmp(tmp,"USER_OFF")==0){
@@ -328,7 +212,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf(" <%s,",tmp);
+            printf("%lu\t\t\t<%s,",pthread_self(),tmp);
             strcpy(tmp_tuple.ip,tmp);
 
             tmp[0]='\0';
@@ -339,7 +223,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
               buf[1]='\0';
               strcat(tmp,buf);
             }
-            printf("%s>\n",tmp);
+            printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
             strcpy(tmp_tuple.port,tmp);
           }
           buf[1]='\0';//FIXEME mpori na 8eli 0
@@ -350,10 +234,14 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         list->deleten(tmp_tuple);
         list->print();
         pthread_mutex_unlock(&list_lock);
-        tmp[0]='\0';
+
+        sleep(1);//!!!den ine apolita sosto
+        printf("%lu\t\tclosing connection to server and terminating thread\n",pthread_self());
+        close(newsock);
+        return NULL;
       }
-      //--------------------------------------an ine
-      else if(strcmp(tmp,"GET_FILE_LIST")==0){
+      //--------------------------------------an ine FILE_LIST
+      else if(strcmp(tmp,"FILE_LIST")==0){
         iptuple tmp_tuple("a","b");
         int n;
         // diabazi n
@@ -365,7 +253,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
           strcat(tmp,buf);
         }
         n=atoi(tmp);
-        printf(" %d\n",n );
+        printf("%lu\t\t\t%d\n",pthread_self(),n );
 
         for(int i=0;i<n;i++){
           //diabase to proto <>
@@ -379,7 +267,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
                 buf[1]='\0';
                 strcat(tmp,buf);
               }
-              printf("<%s,",tmp);
+              printf("%lu\t\t\t<%s,",pthread_self(),tmp);
               strcpy(tmp_tuple.ip,tmp);
               tmp[0]='\0';
               //diabase port
@@ -389,17 +277,77 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
                 buf[1]='\0';
                 strcat(tmp,buf);
               }
-              printf("%s> ",tmp);
+              printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
               strcpy(tmp_tuple.port,tmp);
             }
             buf[1]='\0';
             break;
           }
-          printf("\n");
         }
 
-        tmp[0]='\0';
+        sleep(1);//!!!den ine apolita sosto
+        printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
+        close(newsock);
+        return NULL;
       }
+      //--------------------------------------an ine GET_FILE_LIST
+      else if(strcmp(tmp,"GET_FILE_LIST")==0){
+        iptuple tmp_tuple("a","b");
+        //diabase to proto <>
+        while(read(newsock, buf, 1) > 0){
+          if(buf[0]=='<'){
+            tmp[0]='\0';
+            //diabase ip
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]==',')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%lu\t\t\t<%s,",pthread_self(),tmp);
+            strcpy(tmp_tuple.ip,tmp);
+
+            tmp[0]='\0';
+            //diabase port
+            while(read(newsock, buf, 1) > 0){
+              if(buf[0]=='>')
+                break;
+              buf[1]='\0';
+              strcat(tmp,buf);
+            }
+            printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
+            strcpy(tmp_tuple.port,tmp);
+          }
+          buf[1]='\0';
+          break;
+        }
+
+
+        //try to connect to client
+        int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
+        printf("%lu\t\tsending FILE_LIST ",pthread_self() );
+        if (write(tmp_sock, "FILE_LIST ", 10) < 0) perror_exit("write");
+        //send n
+        char aa[50];
+        sprintf(aa, "%d ",get_files_no("", input_dir));
+        printf("%lu\t\t\t%s\n",pthread_self(),aa );
+        if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
+        //pthread_create(&t, NULL, send_child, (void *)&newsock);
+        //send file_tuple list
+        if(send_file_list("", input_dir,tmp_sock)!=0){
+          cerr<< "send_proces failed \n";
+          exit(1);
+        }
+        printf("%lu\t\tclosing connection\n",pthread_self());
+        sleep(1);//!!!den ine apolita sosto
+        close(tmp_sock);
+
+        sleep(1);//!!!den ine apolita sosto
+        printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
+        close(newsock);
+        return NULL;
+      }
+      tmp[0]='\0';
     }
     else
       strcat(tmp,buf);
@@ -409,11 +357,135 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
   return NULL;
 }
 
-//thread handles all incoming messages from my port
-void *send_child(void* newsoc){
-  int newsock=*(int *)newsoc;
+//thread handles initial messages to server
+void *primary_server_messages(void *none){
+  char buf[256],tmp[500];//tmp buffers for read and wrie
+  struct sockaddr_in server;
+  struct sockaddr *serverptr = (struct sockaddr*)&server;
+  struct hostent *rem;
 
-  send_file_list("", input_dir, newsock);
+  //-------------------------------------create socket and connection to primary server socket
+    /* Create socket */
+    if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) perror_exit("socket");
+    /* Find server address */
+    if ((rem = gethostbyname(server_symbolicip)) == NULL) {perror("gethostbyname");exit(1);}
+    server.sin_family = AF_INET;       /* Internet domain */
+    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
+    server.sin_port = htons(server_port);         /* Server port */
+    /* Initiate connection */
+    if (connect(server_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+    printf("%lu\t\tConnecting to server %s port %d\n",pthread_self(), server_symbolicip, server_port);
+    //find host name and ip address
+    if(gethostname(buf, 256)!=0)perror_exit("gethostname");
+    struct hostent * mymachine ;
+    struct in_addr ** addr_list;
+    //resolve hostname to ip address
+    if ( ( mymachine = gethostbyname ( buf) ) == NULL ){
+      printf ( "%lu\t\tCould not resolved Name : %s \n ",pthread_self() , buf) ;
+      exit(1);
+    }
+    else{
+      addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
+      strcpy ( server_symbolicip , inet_ntoa (* addr_list [0]) ) ;
+      printf ( "%lu\t\tserver name %s resolved to %s \n",pthread_self() , mymachine -> h_name ,server_symbolicip ) ;
+  }
+
+
+  //------------------------------------------------send initial messages to server socket
+    /*
+    1 send LOG_ON
+    2 send GET_CLIENTS
+    3 rcv CLIENT_LIST
+    4 add clients to list
+    5 close connection to server port
+    */
+    printf("%lu\t\tsending LON_ON\n",pthread_self());
+    sprintf(buf, "LOG_ON <%s, %d>",my_symbolicip,my_port);
+    if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+    printf("%lu\t\tsending GET_CLIENTS\n",pthread_self());
+    strcpy(buf,"GET_CLIENTS ");
+    if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
+    tmp[0]='\0';
+    //rcv CLIENT_LIST
+    printf("%lu\t\trcving from server:\n",pthread_self());
+    while(read(server_sock, buf, 1) > 0){
+      buf[1]='\0';
+      //printf("%s\n",buf);
+      //pirame tin entoli
+      if(buf[0]==' '){
+        printf("%lu\t\t\t%s\n",pthread_self(), tmp);
+        //--------------------------------------an ine CLIENT_LIST
+        if(strcmp(tmp,"CLIENT_LIST")==0){
+          iptuple tmp_tuple("a","b");
+          int n;
+          // diabazi n
+          tmp[0]='\0';
+          while(read(server_sock, buf, 1) > 0){
+            if(buf[0]==' ')
+              break;
+            buf[1]='\0';
+            strcat(tmp,buf);
+          }
+          n=atoi(tmp);
+          printf("%lu\t\t\t %d\n",pthread_self(),n );
+
+          for(int i=0;i<n;i++){
+            //diabase to proto <>
+            while(read(server_sock, buf, 1) > 0){//mpeni mono mia fora
+              if(buf[0]=='<'){
+                tmp[0]='\0';
+                //diabase ip
+                while(read(server_sock, buf, 1) > 0){
+                  if(buf[0]==',')
+                    break;
+                  buf[1]='\0';
+                  strcat(tmp,buf);
+                }
+                printf("%lu\t\t\t<%s,",pthread_self(),tmp);
+                strcpy(tmp_tuple.ip,tmp);
+                tmp[0]='\0';
+                //diabase port
+                while(read(server_sock, buf, 1) > 0){
+                  if(buf[0]=='>')
+                    break;
+                  buf[1]='\0';
+                  strcat(tmp,buf);
+                }
+                printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
+                strcpy(tmp_tuple.port,tmp);
+              }
+              buf[1]='\0';
+              break;
+            }
+            if(!(tmp_tuple==iptuple(my_symbolicip,my_port_str))){
+              //update list
+              pthread_mutex_lock(&list_lock);
+              list->add(tmp_tuple);
+              list->print();
+              pthread_mutex_unlock(&list_lock);
+
+              //try to connect to client
+              int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
+              //send GET_FILE_LIST
+              char aa[50];
+              sprintf(aa, "GET_FILE_LIST <%s, %s>",my_symbolicip,my_port_str);
+              printf("%lu\t\tsending %s\n",pthread_self(),aa );
+              if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
+              printf("%lu\t\tclosing connection\n",pthread_self());
+              sleep(1);//!!!den ine apolita sosto
+              close(tmp_sock);
+            }
+          }
+          break;
+        }
+      }
+      else
+        strcat(tmp,buf);
+    }
+    sleep(1);//!!!den ine apolita sosto
+    close(server_sock);
+    printf("%lu\t\tclosing server conection\n",pthread_self());
+
 
   return NULL;
 }
@@ -436,6 +508,7 @@ void kill_signal_handler(int sig){
   printf("sending %s\n",buf );
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
   printf("closing connection to server\n");
+  sleep(1);//!!!den ine apolita sosto
   close(server_sock);
 
   printf("Client exiting\n");
@@ -454,7 +527,7 @@ int connect_to_sock(char *ipaddr ,char* sock_num){
   /* Find server address */
   struct hostent *rem;
   if ((rem = gethostbyname(ipaddr)) == NULL) {
-    printf("%s\n",hstrerror(h_errno));
+    printf("gethostbyname ERROR %s - %s - %s\n",hstrerror(h_errno),ipaddr, sock_num);
     perror("gethostbyname");
     exit(1);
   }
@@ -645,9 +718,6 @@ int send_file_list(char* sub_dir, char* input_dir, int  _port){
 
       }
       else{// if directory
-        sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
-        send_file_list(tmp, input_dir,_port);
-        // printf("\t %s returned %d\n",tmp, send_file_list(tmp, input_dir));
         //send file_name,version
         sprintf(file_tuple, "<%s%s%s, 0>",input_dir,sub_dir,dir->d_name);
         printf("sending %s\n", file_tuple);
@@ -655,6 +725,10 @@ int send_file_list(char* sub_dir, char* input_dir, int  _port){
           cerr<< "write send failed: "<< strerror(errno)<<endl;
           return 1;
         }
+
+        sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
+        send_file_list(tmp, input_dir,_port);
+        // printf("\t %s returned %d\n",tmp, send_file_list(tmp, input_dir));
       }
     }
   }
