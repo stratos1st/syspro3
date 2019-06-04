@@ -15,6 +15,7 @@ public:
   const char* get_port_str()const;
   void print();
   char* get_string();
+  char* get_file_formated_string();
   bool operator==(const iptuple& rhs);
 
 };

@@ -143,9 +143,10 @@ void *child_server(void *newsoc){
         if (write(newsock, "CLIENT_LIST ", 12) < 0) perror_exit("write");
         sprintf(tmp, "%d ",list->getlen());
         if (write(newsock, tmp, strlen(tmp)) < 0) perror_exit("write");
-        tmp_buf=list->get_string();//TODO na min stelni ton eafto tou
+        tmp_buf=list->get_string();
         if (write(newsock, tmp_buf, strlen(tmp_buf)+1) < 0) perror_exit("write");
         printf(" %s\n",tmp_buf);
+        delete tmp_buf;
 
         sleep(1);//!!!den ine apolita sosto
         printf("closing connection to client and terminating thread\n");

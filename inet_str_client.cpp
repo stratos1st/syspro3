@@ -39,18 +39,20 @@ int connect_to_sock(char *ipaddr ,char* sock_num);//connects togiven socket
 int is_file(const char *path);//returns true if path is a file
 char* read_hole_file(char* file_name);// returns pointer to the contents of the file
 int file_sz(char* file_name);// returns the number of characters in the file
-
-int send_file_list(char* sub_dir, char* input_dir, int _potr);
-int get_files_no(char* sub_dir, char* input_dir);
+int rcv_file(char* dir, int _port);//rcves file and creates it
+void make_file_list(char* sub_dir, char* input_dir);//updates my file list
+void send_file_list(int _potr);//sends files in FILE_LIST format
+int get_files_no(char* sub_dir, char* input_dir);//returns number of files in input dir
 
 //globals for signal handler
 int server_port, server_sock, my_port;
 char server_symbolicip[50], server_port_str[50], my_port_str[50], my_symbolicip[50];
 
 LinkedList* list;//list holding all client tuples
+LinkedList* file_list;//list holding all my file tuples (name,version)
 pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;//locks list operations
 char input_dir[100];//my directory
-
+int my_files_no;
 
 int main(int argc, char *argv[]){
   struct sockaddr_in server;
@@ -58,6 +60,7 @@ int main(int argc, char *argv[]){
   pthread_t t;
 
   list = new LinkedList();
+  file_list=new LinkedList();
   gethostname(my_symbolicip, sizeof(my_symbolicip));
 
   //asigning signal handlers
@@ -96,6 +99,12 @@ int main(int argc, char *argv[]){
         break;
     }
   }
+
+  //record my files
+  make_file_list("", input_dir);
+  my_files_no=get_files_no("",input_dir);
+  if(my_files_no!=1)//if input is empty
+    my_files_no++;
 
   pthread_create(&t, NULL, primary_server_messages, NULL);
   // pthread_join(t, NULL);
@@ -255,11 +264,12 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         printf("%lu\t\t\t%d\n",pthread_self(),n );
 
         //read file_list
-        LinkedList* file_list;
-        file_list=new LinkedList;
+        LinkedList *tmp_list=new LinkedList();
         for(int i=0;i<n;i++){
           //diabase to proto <>
           while(read(newsock, buf, 1) > 0){//mpeni mono mia fora
+            if(buf[0]==' ')
+              continue;
             if(buf[0]=='<'){
               tmp[0]='\0';
               //diabase ip
@@ -281,16 +291,37 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
               }
               printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
               strcpy(tmp_tuple.port,tmp);
-              file_list->add(tmp_tuple);
             }
             buf[1]='\0';
             break;
           }
+          tmp_list->add(tmp_tuple);
         }
 
-        //send GET_FILE for each
+        printf("%lu\t\t\t tmp_file_list:\n,",pthread_self());
+        tmp_list->print();
 
-        //rcv FILE_SIZE for each and make file
+        //get first file aka input dir of a=other client
+        char aa[200];
+        sprintf(aa, "GET_FILE <%s, %s>",tmp_list->get_by_index(tmp_list->getlen())->ip,tmp_list->get_by_index(tmp_list->getlen()-1)->port);
+        printf("%lu\t\t\tsending %s\n",pthread_self(),aa );
+        if (write(newsock, aa, strlen(aa)) < 0) perror_exit("write");
+        //rcv FILE_SIZE and create file
+        sprintf(aa,"%s%s",input_dir,tmp_tuple.ip);
+        rcv_file(aa, newsock);
+
+        //get all other files
+        for(int i=0;i<tmp_list->getlen()-1;i++){
+          //send GET_FILE for each
+          char aa[200];
+          sprintf(aa, "GET_FILE <%s, %s>",tmp_list->get_by_index(i)->ip,tmp_list->get_by_index(i)->port);
+          printf("%lu\t\t\tsending %s\n",pthread_self(),aa );
+          if (write(newsock, aa, strlen(aa)) < 0) perror_exit("write");
+          //rcv FILE_SIZE and create file
+          sprintf(aa,"%s%s",input_dir,tmp_tuple.ip);
+          rcv_file(aa, newsock);
+        }
+        delete tmp_list;
 
         sleep(1);//!!!den ine apolita sosto
         printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
@@ -336,22 +367,68 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         if (write(tmp_sock, "FILE_LIST ", 10) < 0) perror_exit("write");
         //send n
         char aa[50];
-        sprintf(aa, "%d ",get_files_no("", input_dir));
-        printf("%lu\t\t\t%s\n",pthread_self(),aa );
+        sprintf(aa, "%d ",my_files_no);
+        printf("%lu\t\t\t number of files %s\n",pthread_self(),aa);
         if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
-        //pthread_create(&t, NULL, send_child, (void *)&newsock);
-        //send file_tuple list
-        if(send_file_list("", input_dir,tmp_sock)!=0){
-          cerr<< "send_proces failed \n";
+        //send my input dir,version
+        char file_tuple[100];
+        sprintf(file_tuple, "<%s, 0>",input_dir);
+        printf("sending my input dir %s\n", file_tuple);
+        if(write(tmp_sock, file_tuple, strlen(file_tuple))<0 && errno!=EINTR){
+          cerr<< "write send failed: "<< strerror(errno)<<endl;
           exit(1);
         }
+        //send file_tuple list
+        send_file_list(tmp_sock);
 
-        //rcv GET_FILE
+        for(int i=0;i<my_files_no;i++){
+          //rcv GET_FILE
+          tmp[0]='\0';
+          while(read(tmp_sock, buf, 1) > 0){
+            buf[1]='\0';
+            if(strcmp(buf, "GET_FILE ")==0){
+              //diabase to deftero <> me to filepath
+              while(read(tmp_sock, buf, 1) > 0){
+                if(buf[0]=='<'){
+                  tmp[0]='\0';
+                  //diabase ip
+                  while(read(tmp_sock, buf, 1) > 0){
+                    if(buf[0]==',')
+                      break;
+                    buf[1]='\0';
+                    strcat(tmp,buf);
+                  }
+                  printf("%lu\t\t\t<%s,",pthread_self(),tmp);
+                  strcpy(tmp_tuple.ip,tmp);
 
+                  tmp[0]='\0';
+                  //diabase port
+                  while(read(tmp_sock, buf, 1) > 0){
+                    if(buf[0]=='>')
+                      break;
+                    buf[1]='\0';
+                    strcat(tmp,buf);
+                  }
+                  printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
+                  strcpy(tmp_tuple.port,tmp);
+                }
+                buf[1]='\0';
+                break;
+              }
+              break;
+              //send FILE_SIZE
+              printf("%lu\t\tsending FILE_SIZE ",pthread_self() );
+              if (write(tmp_sock, "FILE_SIZE ", 10) < 0) perror_exit("write");
 
-        //send FILE_SIZE
+              //must check for version and reply with FILE_UP_TODATE
+              //must check if file exists and reply with FILE_NOT_FOUND
 
-
+              //send file bites to client
+              send_file(tmp_tuple.ip,tmp_sock);//tmp_tuple.ip holds path an tmp_tuple.port holds version
+            }
+            strcat(tmp,buf);
+          }
+        }
 
         printf("%lu\t\tclosing connection\n",pthread_self());
         sleep(1);//!!!den ine apolita sosto
@@ -362,88 +439,6 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         close(newsock);
         return NULL;
       }
-      //--------------------------------------an ine GET_FILE
-      else if(strcmp(tmp,"GET_FILE")==0){//!!!!!!!!!!!!den prepi na eine edo
-        iptuple tmp_tuple("a","b");
-        //diabase to proto <> me to ip,port
-        while(read(newsock, buf, 1) > 0){
-          if(buf[0]=='<'){
-            tmp[0]='\0';
-            //diabase ip
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]==',')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%lu\t\t\t<%s,",pthread_self(),tmp);
-            strcpy(tmp_tuple.ip,tmp);
-
-            tmp[0]='\0';
-            //diabase port
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]=='>')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%lu\t\t\t%s> ",pthread_self(),tmp);
-            strcpy(tmp_tuple.port,tmp);
-          }
-          buf[1]='\0';
-          break;
-        }
-        //try to connect to client
-        int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
-
-        //diabase to deftero <> me to filepath
-        while(read(newsock, buf, 1) > 0){
-          if(buf[0]=='<'){
-            tmp[0]='\0';
-            //diabase ip
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]==',')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%lu\t\t\t<%s,",pthread_self(),tmp);
-            strcpy(tmp_tuple.ip,tmp);
-
-            tmp[0]='\0';
-            //diabase port
-            while(read(newsock, buf, 1) > 0){
-              if(buf[0]=='>')
-                break;
-              buf[1]='\0';
-              strcat(tmp,buf);
-            }
-            printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
-            strcpy(tmp_tuple.port,tmp);
-          }
-          buf[1]='\0';
-          break;
-        }
-
-        printf("%lu\t\tsending FILE_SIZE ",pthread_self() );
-        if (write(tmp_sock, "FILE_SIZE ", 10) < 0) perror_exit("write");
-
-        //must check for version and reply with FILE_UP_TODATE
-        //must check if file exists and reply with FILE_NOT_FOUND
-
-        //send file bites to client
-        send_file(tmp_tuple.ip,tmp_sock);//tmp_tuple.ip holds path an tmp_tuple.port holds version
-
-        printf("%lu\t\tclosing connection\n",pthread_self());
-        sleep(1);//!!!den ine apolita sosto
-        close(tmp_sock);
-
-        sleep(1);//!!!den ine apolita sosto
-        printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
-        close(newsock);
-        return NULL;
-      }
-
       tmp[0]='\0';
     }
     else
@@ -494,7 +489,9 @@ void *primary_server_messages(void *none){
     2 send GET_CLIENTS
     3 rcv CLIENT_LIST
     4 add clients to list
-    5 close connection to server port
+    5 open conection to new client
+    6 send GET_FILE_LIST and close connection to client
+    7 close connection to server port
     */
     printf("%lu\t\tsending LON_ON\n",pthread_self());
     sprintf(buf, "LOG_ON <%s, %d>",my_symbolicip,my_port);
@@ -682,6 +679,53 @@ int send_file(char* dir, int _port){
   return 0;
 }
 
+//updates my file list
+void make_file_list(char* sub_dir, char* input_dir){
+  DIR *d=NULL;
+  char tmp[300], file_tuple[300];
+  bool empty_dir=true;
+  struct dirent *dir;
+  char zero[]="0";
+  sprintf(tmp,"%s%s",input_dir,sub_dir);
+
+  // printf("entering send file list sub_dir: %s input_dir: %s\n",sub_dir,input_dir);
+  if((d= opendir(tmp))==NULL){
+    cerr<< "opendir send failed: "<< strerror(errno)<<endl;
+    //return 1;
+    exit(1);
+  }
+  //for all the files i need to send
+  while ((dir = readdir(d)) != NULL){
+    if(strcmp(dir->d_name,".")!=0 && strcmp(dir->d_name,"..")!=0){
+      sprintf(tmp, "%s%s%s",input_dir,sub_dir,dir->d_name);
+      if(is_file(tmp)){// if file
+        empty_dir=false;
+        //push file_name,version
+        printf("pushing to file list %s %s\n", tmp,zero);
+        file_list->add(iptuple(tmp,zero));
+      }
+      else{// if directory
+        sprintf(file_tuple, "<%s%s%s, 0>",input_dir,sub_dir,dir->d_name);
+        //push file_name,version
+        printf("pushing to file list %s %s\n", tmp,zero);
+        file_list->add(iptuple(tmp,zero));
+
+        sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
+        make_file_list(tmp, input_dir);
+        // printf("\t %s returned %d\n",tmp, send_file_list(tmp, input_dir));
+      }
+    }
+  }
+
+  if(empty_dir){//if the directory is empty
+    //push file_name,version
+    printf("pushing to file list %s %s\n", tmp,zero);
+    file_list->add(iptuple(tmp,zero));
+  }
+
+  closedir(d);
+}
+
 //returns number of files in input dir
 int get_files_no(char* sub_dir, char* input_dir){
   DIR *d=NULL;
@@ -728,177 +772,106 @@ int get_files_no(char* sub_dir, char* input_dir){
   return n;
 }
 
-//returns number of files
-int send_file_list(char* sub_dir, char* input_dir, int  _port){
-  DIR *d=NULL;
-  char tmp[300], file_tuple[300];
-  bool empty_dir=true;
-  struct dirent *dir;
-  sprintf(tmp,"%s%s",input_dir,sub_dir);
+//sends files in FILE_LIST format
+void send_file_list(int  _port){
+  printf("entering send file list\n");
 
-  // printf("entering send file list sub_dir: %s input_dir: %s\n",sub_dir,input_dir);
-  if((d= opendir(tmp))==NULL){
-    cerr<< "opendir send failed: "<< strerror(errno)<<endl;
-    //return 1;
-    exit(1);
-  }
-  //for all the files i need to send
-  while ((dir = readdir(d)) != NULL){
-    if(strcmp(dir->d_name,".")!=0 && strcmp(dir->d_name,"..")!=0){
-      sprintf(tmp, "%s%s%s",input_dir,sub_dir,dir->d_name);
-      if(is_file(tmp)){// if file
-        empty_dir=false;
-        //send file_name,version
-        sprintf(file_tuple, "<%s, 0>",tmp);
-        printf("sending %s\n", file_tuple);
-        if(write(_port, file_tuple, strlen(file_tuple))<0 && errno!=EINTR){
-          cerr<< "write send failed: "<< strerror(errno)<<endl;
-          return 1;
-        }
+  char *tmp_buf;
+  tmp_buf=file_list->get_string();
+  if (write(_port, tmp_buf, strlen(tmp_buf)) < 0) perror_exit("write");
+  printf("sended %s\n", tmp_buf);
+  delete tmp_buf;
 
-      }
-      else{// if directory
-        //send file_name,version
-        sprintf(file_tuple, "<%s%s%s, 0>",input_dir,sub_dir,dir->d_name);
-        printf("sending %s\n", file_tuple);
-        if(write(_port, file_tuple, strlen(file_tuple))<0 && errno!=EINTR){
-          cerr<< "write send failed: "<< strerror(errno)<<endl;
-          return 1;
-        }
-
-        sprintf(tmp, "%s%s/",sub_dir,dir->d_name);
-        send_file_list(tmp, input_dir,_port);
-        // printf("\t %s returned %d\n",tmp, send_file_list(tmp, input_dir));
-      }
-    }
-  }
-
-  if(empty_dir){//if the directory is empty
-    //send file_name,version
-    sprintf(file_tuple, "<%s, 0>",tmp);
-    printf("sending %s\n", file_tuple);
-    if(write(_port, file_tuple, strlen(file_tuple))<0 && errno!=EINTR){
-      cerr<< "write send failed: "<< strerror(errno)<<endl;
-      return 1;
-    }
-
-  }
-
-  closedir(d);
-
-  return 0;
 }
 
-//handles rcving protocol
-int rcv_file(char* mirror_dir, int buff_len, int _port){
-  printf("entering rcv files mirror_dir: %s\n",mirror_dir);
+//rcves file and creates it
+int rcv_file(char* dir, int _port){
   //---------------------------------------rcv child process
   struct stat tmp_stat;
   char tmp[200];
-  char buffer[9999], tmp_buff[buff_len+1],tmp_file_name[9999];
-  //read name len
-  if(read(_port, buffer, 2)<0 && errno!=EINTR){
-    cerr<< "read rcv failed: "<< strerror(errno)<<endl;
-    return 1;
+  char buf[2],tmp_file_bytes[200];
+
+  printf("entering rcv file dir: %s\n",dir);
+
+  //read FILE_SIZE
+  tmp[0]='\0';
+  buf[0]='\0';
+  while(read(_port, buf, 1) > 0){
+    if(buf[0]==' ')
+      break;
+    buf[1]='\0';
+    strcat(tmp,buf);
+    if(strcmp(tmp, "FILE_SIZE ")==0)
+      break;
   }
-  buffer[2]='\0';
-  int sz;
-  try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
-  int left_to_read, bytes_to_read;
+  printf("rcved %s\n", tmp);
 
-  while(sz!=0){
-    //read name
-    buffer[0]='\0';
-    left_to_read=sz;
-    while(left_to_read>0){
-      if(left_to_read-buff_len<0)
-        bytes_to_read=left_to_read;
-      else
-        bytes_to_read=buff_len;
-      if(read(_port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
-        cerr<< "read rcv failed: "<< strerror(errno)<<endl;
-        return 1;
-      }
-      tmp_buff[bytes_to_read]='\0';
-      strcat(buffer,tmp_buff);
-      left_to_read-=bytes_to_read;
-    }
-    strcpy(tmp_file_name,buffer);//coppy name for later
+  int n;
+  //!!!!! DEN TO XRISIMOPIO POU8ENA
+  // diabazi version
+  tmp[0]='\0';
+  buf[0]='\0';
+  while(read(_port, buf, 1) > 0){
+    if(buf[0]==' ')
+      break;
+    buf[1]='\0';
+    strcat(tmp,buf);
+  }
+  n=atoi(tmp);
+  printf("rcved version= %d\n",n);
 
-    //make dir
-    sprintf(tmp, "%s",tmp_file_name);
-    char *tmpp=strrchr(tmp,'/');
-    if(tmpp!=NULL){// if not in the starting directory 1_mirror
-      *tmpp='\0';
-      char tmp2[100];
-      sprintf(tmp2, "%s/%s",mirror_dir,tmp);
-      if(stat(tmp2, &tmp_stat) != 0)
-        if(mkdir(tmp2, 0766)){
-          cerr <<"!!rcv can not create directory "<<tmp2<<" for file "<<tmp_file_name;perror("\n");
-          return 1;
-        }
-    }
 
-    //read file len
-    if(read(_port, buffer, 4)<0 && errno!=EINTR){
+  iptuple tmp_tuple("a","b");
+  // diabazi n
+  tmp[0]='\0';
+  buf[0]='\0';
+  while(read(_port, buf, 1) > 0){
+    if(buf[0]==' ')
+      break;
+    buf[1]='\0';
+    strcat(tmp,buf);
+  }
+  n=atoi(tmp);
+  printf("rcved n= %d\n",n);
+
+  //read file_list
+  tmp_file_bytes[0]='\0';
+  for(int i=0;i<n;i++){
+    //diabase to proto byte
+    if(read(_port, buf,1)<0 && errno!=EINTR){
       cerr<< "read rcv failed: "<< strerror(errno)<<endl;
-      return 1;
+      exit(1);
     }
-    buffer[4]='\0';
-    try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
-    fflush(stdout);
+    buf[1]='\0';
+    strcat(tmp_file_bytes, buf);
+  }
 
-    if(sz!=-1){//if it is a file
+  printf("rcved file %s has bytes %s\n",dir,tmp_file_bytes);
+
+
+  if(n==0){//if directory
+    if(stat(dir, &tmp_stat) != 0)
+      if(mkdir(dir, 0766)){
+        cerr <<"!!rcv can not create directory "<<dir;
+        perror("\n");
+        exit(1);
+      }
+  }
+  else{//if file
       //make file
       FILE *new_file=NULL;
-      sprintf(tmp, "%s/%s",mirror_dir,tmp_file_name);
-      new_file=fopen(tmp, "w");
+      new_file=fopen(dir, "w");
       if(new_file==NULL){
-        cerr <<"!rcv can not create "<<tmp<<" file "<<strerror(errno)<<"\n";
-        return 1;
-      }
-
-      //read file
-      buffer[0]='\0';
-      left_to_read=sz;
-      while(left_to_read>0){
-        if(left_to_read-buff_len<0)
-          bytes_to_read=left_to_read;
-        else
-          bytes_to_read=buff_len;
-        if(read(_port, tmp_buff, bytes_to_read)<0 && errno!=EINTR){
-          cerr<< "read rcv failed: "<< strerror(errno)<<endl;
-          return 1;
-        }
-        tmp_buff[bytes_to_read]='\0';
-        strcat(buffer,tmp_buff);
-        left_to_read-=bytes_to_read;
+        cerr <<"!rcv can not create "<<dir<<" file "<<strerror(errno)<<"\n";
+        exit(1);
       }
 
       //write to file
-      fprintf(new_file, "%s", buffer);
+      fprintf(new_file, "%s", tmp_file_bytes);
       fclose(new_file);
     }
-    else{//if it is a directory
-      sprintf(tmp, "%s/%s",mirror_dir,strchr(tmp_file_name+2,'/')+1);
-      //cout<<"ine directory "<<tmp<<endl;
-      if(stat(tmp, &tmp_stat) != 0)
-        if(mkdir(tmp, 0766)){
-          cerr <<"!rcv can not create lone directory "<<tmp<<"\n";
-          return 1;
-        }
-    }
 
-    //read next name or 00
-    if(read(_port, buffer, 2)<0 && errno!=EINTR){
-      cerr<< "read rcv failed: "<< strerror(errno)<<endl;
-      return 1;
-    }
-    buffer[2]='\0';
-    try {sz=atoi(buffer);/* den exi c++11 stoi(buffer, NULL, 10); */} catch (...) {cout<<"!!ERROR stoi: "<<buffer<<" "<<tmp_file_name<<"\n";exit(1);}
-  }
-
-  printf("rcving files ended\n");
+  printf("rcved and created file %s ended\n",dir);
 
   return 0;
 }

@@ -10,7 +10,6 @@ class Node{
   iptuple *data;
   Node();
   ~Node();
-  char* get_string();
 };
 
 class LinkedList{

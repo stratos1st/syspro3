@@ -100,7 +100,7 @@ char* LinkedList::get_string(){
     head = head->next;
   }
   if(length==0)
-  strcat(ans,"NONE");
+    strcat(ans,"");
 
   return ans;
 }
