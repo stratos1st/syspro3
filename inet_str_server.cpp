@@ -12,6 +12,7 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
 
 #include "linked_list.h"
 #include "tuple.h"
@@ -124,7 +125,9 @@ void *child_server(void *newsoc){
           int tmp_sock=connect_to_sock(list_elem->ip,list_elem->port);
           //send USER_ON message
           if(write(tmp_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-          close(tmp_sock);
+          int count;
+          do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+          sleep(1);close(tmp_sock);
           printf("sended %s\nclosing connection to client\n", buf);
         }
 
@@ -148,9 +151,10 @@ void *child_server(void *newsoc){
         printf(" %s\n",tmp_buf);
         delete tmp_buf;
 
-        sleep(1);//!!!den ine apolita sosto
         printf("closing connection to client and terminating thread\n");
-        close(newsock);
+        int count;
+        do{ioctl(newsock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(newsock);
         return NULL;
       }
       //--------------------------------------an ine LOG_OFF
@@ -194,14 +198,16 @@ void *child_server(void *newsoc){
           int tmp_sock=connect_to_sock(list_elem->ip,list_elem->port);
           //send USER_OFF message
           if(write(tmp_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
-          close(tmp_sock);
+          int count;
+          do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+          sleep(1);close(tmp_sock);
           printf("sended %s\nclosing connection to client\n", buf);
         }
 
         //end child (he loged off)
         sleep(1);//!!!den ine apolita sosto
         printf("closing connection to client and terminating thread\n");
-        close(newsock);
+        sleep(1);close(newsock);
         return NULL;
       }
       tmp[0]='\0';

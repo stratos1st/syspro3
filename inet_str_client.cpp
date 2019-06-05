@@ -18,6 +18,7 @@
 #include <sys/file.h>
 #include <sys/prctl.h>
 #include <dirent.h>
+#include <sys/ioctl.h>
 
 #include "linked_list.h"
 #include "tuple.h"
@@ -198,11 +199,13 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
         printf("%lu\t\tclosing connection\n",pthread_self());
         sleep(1);//!!!den ine apolita sosto
-        close(tmp_sock);
+        int count;
+        do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(tmp_sock);
 
-        sleep(1);//!!!den ine apolita sosto
         printf("%lu\t\tclosing connection to server and terminating thread\n",pthread_self());
-        close(newsock);
+        do{ioctl(newsock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(newsock);
         return NULL;
       }
       //--------------------------------------an ine USER_OFF
@@ -242,9 +245,10 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         list->print();
         pthread_mutex_unlock(&list_lock);
 
-        sleep(1);//!!!den ine apolita sosto
         printf("%lu\t\tclosing connection to server and terminating thread\n",pthread_self());
-        close(newsock);
+        int count;
+        do{ioctl(newsock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(newsock);
         return NULL;
       }
       //--------------------------------------an ine FILE_LIST
@@ -322,9 +326,10 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         }
         delete tmp_list;
 
-        sleep(1);//!!!den ine apolita sosto
         printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
-        close(newsock);
+        int count;
+        do{ioctl(newsock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(newsock);
         return NULL;
       }
       //--------------------------------------an ine GET_FILE_LIST
@@ -430,12 +435,13 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         }
 
         printf("%lu\t\tclosing connection\n",pthread_self());
-        sleep(1);//!!!den ine apolita sosto
-        close(tmp_sock);
+        int count;
+        do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(tmp_sock);
 
-        sleep(1);//!!!den ine apolita sosto
         printf("%lu\t\tclosing connection to client and terminating thread\n",pthread_self());
-        close(newsock);
+        do{ioctl(newsock, FIONREAD, &count);sleep(1);}while(count!=0);
+        sleep(1);close(newsock);
         return NULL;
       }
       tmp[0]='\0';
@@ -565,8 +571,9 @@ void *primary_server_messages(void *none){
               printf("%lu\t\tsending %s\n",pthread_self(),aa );
               if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
               printf("%lu\t\tclosing connection\n",pthread_self());
-              sleep(1);//!!!den ine apolita sosto
-              close(tmp_sock);
+              int count;
+              do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+              sleep(1);close(tmp_sock);
             }
           }
           break;
@@ -575,8 +582,9 @@ void *primary_server_messages(void *none){
       else
         strcat(tmp,buf);
     }
-    sleep(1);//!!!den ine apolita sosto
-    close(server_sock);
+    int count;
+    do{ioctl(server_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+    sleep(1);close(server_sock);
     printf("%lu\t\tclosing server conection\n",pthread_self());
 
 
@@ -601,8 +609,9 @@ void kill_signal_handler(int sig){
   printf("sending %s\n",buf );
   if (write(server_sock, buf, strlen(buf)+1) < 0) perror_exit("write");
   printf("closing connection to server\n");
-  sleep(1);//!!!den ine apolita sosto
-  close(server_sock);
+  int count;
+  do{ioctl(server_sock, FIONREAD, &count);sleep(1);}while(count!=0);
+  sleep(1);close(server_sock);
 
   printf("Client exiting\n");
   exit(0);
@@ -882,7 +891,7 @@ int file_sz(char* file_name){
   }
 
   int sz =lseek(fd, 0L, SEEK_END);
-  close(fd);
+  sleep(1);close(fd);
 
   return sz;
 }
