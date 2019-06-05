@@ -47,7 +47,7 @@ void LinkedList::add(iptuple data){
     node->prev=NULL;
     head = node;
   }
-  this->length++;
+  length++;
 }
 
 Node* LinkedList::find(iptuple data){
@@ -81,10 +81,12 @@ bool LinkedList::deleten(iptuple data){
 
 void LinkedList::print(){
   Node* head = this->head;
-  int i = 1;
+  int i = 0;
   cout<<"LIST:\n";
   while(head){
-    cout << i << ": " ; head->data->print();cout << endl;
+    cout << i << ": " ;
+    head->data->print();
+    cout << endl;
     head = head->next;
     i++;
   }
@@ -115,6 +117,6 @@ iptuple* LinkedList::get_by_index(unsigned int index){
     return NULL;
   else
     for(unsigned int i=0;i<index;i++)
-      ans=head->next;
+      ans=ans->next;
   return ans->data;
 }

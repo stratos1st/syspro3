@@ -303,22 +303,22 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
 
         //get first file aka input dir of a=other client
         char aa[200];
-        sprintf(aa, "GET_FILE <%s, %s>",tmp_list->get_by_index(tmp_list->getlen())->ip,tmp_list->get_by_index(tmp_list->getlen()-1)->port);
+        printf("ton perno pat pat %d\n", tmp_list->getlen());
+        sprintf(aa, "GET_FILE <%s, %s>",tmp_list->get_by_index(tmp_list->getlen()-1)->ip,tmp_list->get_by_index(tmp_list->getlen()-1)->port);
         printf("%lu\t\t\tsending %s\n",pthread_self(),aa );
         if (write(newsock, aa, strlen(aa)) < 0) perror_exit("write");
         //rcv FILE_SIZE and create file
-        sprintf(aa,"%s%s",input_dir,tmp_tuple.ip);
+        sprintf(aa,"%s%s",input_dir,tmp_list->get_by_index(tmp_list->getlen()-1)->ip);
         rcv_file(aa, newsock);
 
         //get all other files
         for(int i=0;i<tmp_list->getlen()-1;i++){
           //send GET_FILE for each
-          char aa[200];
           sprintf(aa, "GET_FILE <%s, %s>",tmp_list->get_by_index(i)->ip,tmp_list->get_by_index(i)->port);
           printf("%lu\t\t\tsending %s\n",pthread_self(),aa );
           if (write(newsock, aa, strlen(aa)) < 0) perror_exit("write");
           //rcv FILE_SIZE and create file
-          sprintf(aa,"%s%s",input_dir,tmp_tuple.ip);
+          sprintf(aa,"%s%s",input_dir,tmp_list->get_by_index(i)->ip);
           rcv_file(aa, newsock);
         }
         delete tmp_list;
@@ -386,47 +386,47 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
           tmp[0]='\0';
           while(read(tmp_sock, buf, 1) > 0){
             buf[1]='\0';
-            if(strcmp(buf, "GET_FILE ")==0){
-              //diabase to deftero <> me to filepath
-              while(read(tmp_sock, buf, 1) > 0){
-                if(buf[0]=='<'){
-                  tmp[0]='\0';
-                  //diabase ip
-                  while(read(tmp_sock, buf, 1) > 0){
-                    if(buf[0]==',')
-                      break;
-                    buf[1]='\0';
-                    strcat(tmp,buf);
-                  }
-                  printf("%lu\t\t\t<%s,",pthread_self(),tmp);
-                  strcpy(tmp_tuple.ip,tmp);
+            if(buf[0]==' '){
+              if(strcmp(tmp, "GET_FILE")==0){
+                printf("rcved GET_FILE\n");
+                //diabase to deftero <> me to filepath
+                while(read(tmp_sock, buf, 1) > 0){
+                  if(buf[0]=='<'){
+                    tmp[0]='\0';
+                    //diabase ip
+                    while(read(tmp_sock, buf, 1) > 0){
+                      if(buf[0]==',')
+                        break;
+                      buf[1]='\0';
+                      strcat(tmp,buf);
+                    }
+                    printf("%lu\t\t\t<%s,",pthread_self(),tmp);
+                    strcpy(tmp_tuple.ip,tmp);
 
-                  tmp[0]='\0';
-                  //diabase port
-                  while(read(tmp_sock, buf, 1) > 0){
-                    if(buf[0]=='>')
-                      break;
-                    buf[1]='\0';
-                    strcat(tmp,buf);
+                    tmp[0]='\0';
+                    //diabase port
+                    while(read(tmp_sock, buf, 1) > 0){
+                      if(buf[0]=='>')
+                        break;
+                      buf[1]='\0';
+                      strcat(tmp,buf);
+                    }
+                    printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
+                    strcpy(tmp_tuple.port,tmp);
                   }
-                  printf("%lu\t\t\t%s>\n",pthread_self(),tmp);
-                  strcpy(tmp_tuple.port,tmp);
+                  buf[1]='\0';
+                  break;
                 }
-                buf[1]='\0';
+                //must check for version and reply with FILE_UP_TODATE
+                //must check if file exists and reply with FILE_NOT_FOUND
+
+                //send file bites to client
+                send_file(tmp_tuple.ip,tmp_sock);//tmp_tuple.ip holds path an tmp_tuple.port holds version
                 break;
               }
-              break;
-              //send FILE_SIZE
-              printf("%lu\t\tsending FILE_SIZE ",pthread_self() );
-              if (write(tmp_sock, "FILE_SIZE ", 10) < 0) perror_exit("write");
-
-              //must check for version and reply with FILE_UP_TODATE
-              //must check if file exists and reply with FILE_NOT_FOUND
-
-              //send file bites to client
-              send_file(tmp_tuple.ip,tmp_sock);//tmp_tuple.ip holds path an tmp_tuple.port holds version
             }
-            strcat(tmp,buf);
+            else
+              strcat(tmp,buf);
           }
         }
 
@@ -643,22 +643,27 @@ int send_file(char* dir, int _port){
 
   printf("entering send file dir: %s \n",dir);
 
+  //send FILE_SIZE
+  printf("sending FILE_SIZE\n");
+  if (write(_port, "FILE_SIZE ", 10) < 0) perror_exit("write");
+
   //write version
-  if(write(_port, "0 ", 1)<0 && errno!=EINTR){
+  if(write(_port, "0 ", 2)<0 && errno!=EINTR){
     cerr<< "write send failed: "<< strerror(errno)<<endl;
     return 1;
   }
+  printf("sending v0\n");
 
   if(is_file(dir)){// if file
     //write file sz
     sz=file_sz(dir);
     if(sz==0){printf("\n\nFILE SZ ==0 !!\n\n"); exit(1);}
     sprintf(tmp, "%d ",sz);
-    printf("sending %s\n",tmp);
     if(write(_port, tmp, strlen(tmp))<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
+    printf("sending %s\n",tmp);
 
     //write file bites
     char* tmpp= read_hole_file(dir);
@@ -670,7 +675,8 @@ int send_file(char* dir, int _port){
     free(tmpp);
   }
   else{// if directory
-    if(write(_port, "0", 1)<0 && errno!=EINTR){
+    printf("sending 0\n");
+    if(write(_port, "0 ", 2)<0 && errno!=EINTR){
       cerr<< "write send failed: "<< strerror(errno)<<endl;
       return 1;
     }
@@ -801,8 +807,6 @@ int rcv_file(char* dir, int _port){
       break;
     buf[1]='\0';
     strcat(tmp,buf);
-    if(strcmp(tmp, "FILE_SIZE ")==0)
-      break;
   }
   printf("rcved %s\n", tmp);
 
@@ -820,8 +824,6 @@ int rcv_file(char* dir, int _port){
   n=atoi(tmp);
   printf("rcved version= %d\n",n);
 
-
-  iptuple tmp_tuple("a","b");
   // diabazi n
   tmp[0]='\0';
   buf[0]='\0';
@@ -846,10 +848,8 @@ int rcv_file(char* dir, int _port){
     strcat(tmp_file_bytes, buf);
   }
 
-  printf("rcved file %s has bytes %s\n",dir,tmp_file_bytes);
-
-
   if(n==0){//if directory
+    printf("rcved directory %s\n",dir);
     if(stat(dir, &tmp_stat) != 0)
       if(mkdir(dir, 0766)){
         cerr <<"!!rcv can not create directory "<<dir;
@@ -858,20 +858,19 @@ int rcv_file(char* dir, int _port){
       }
   }
   else{//if file
-      //make file
-      FILE *new_file=NULL;
-      new_file=fopen(dir, "w");
-      if(new_file==NULL){
-        cerr <<"!rcv can not create "<<dir<<" file "<<strerror(errno)<<"\n";
-        exit(1);
-      }
-
-      //write to file
-      fprintf(new_file, "%s", tmp_file_bytes);
-      fclose(new_file);
+    printf("rcved file %s has bytes %s\n",dir,tmp_file_bytes);
+    //make file
+    FILE *new_file=NULL;
+    new_file=fopen(dir, "w");
+    if(new_file==NULL){
+      cerr <<"!rcv can not create "<<dir<<" file "<<strerror(errno)<<"\n";
+      exit(1);
     }
 
-  printf("rcved and created file %s ended\n",dir);
+    //write to file
+    fprintf(new_file, "%s", tmp_file_bytes);
+    fclose(new_file);
+  }
 
   return 0;
 }
