@@ -1,19 +1,19 @@
 CC= g++
 CFLAG=  -ggdb -Wall
 
-all: client server
+all: dropbox_client dropbox_server
 
-client: inet_str_client.o tuple.o linked_list.o
-	$(CC) $(CFLAG) -o client inet_str_client.o tuple.o linked_list.o -lpthread
+dropbox_client: dropbox_client.o tuple.o linked_list.o
+	$(CC) $(CFLAG) -o dropbox_client dropbox_client.o tuple.o linked_list.o -lpthread
 
-inet_str_client.o: inet_str_client.cpp
-	$(CC) -c inet_str_client.cpp
+dropbox_client.o: dropbox_client.cpp
+	$(CC) -c dropbox_client.cpp
 
-server: inet_str_server.o tuple.o linked_list.o
-	$(CC) $(CFLAG) -o server inet_str_server.o tuple.o linked_list.o -lpthread
+dropbox_server: dropbox_server.o tuple.o linked_list.o
+	$(CC) $(CFLAG) -o dropbox_server dropbox_server.o tuple.o linked_list.o -lpthread
 
-inet_str_server.o: inet_str_server.cpp
-	$(CC) -c inet_str_server.cpp
+dropbox_server.o: dropbox_server.cpp
+	$(CC) -c dropbox_server.cpp
 
 linked_list.o: linked_list.cpp linked_list.h
 	$(CC) -c linked_list.cpp
@@ -23,4 +23,4 @@ tuple.o: tuple.cpp tuple.h
 
 .PHONY: clean
 clean:
-	rm -f inet_str_server.o tuple.o linked_list.o inet_str_client.o server client
+	rm -f dropbox_server.o tuple.o linked_list.o dropbox_client.o dropbox_server dropbox_client

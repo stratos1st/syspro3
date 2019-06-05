@@ -25,8 +25,6 @@
 using namespace std;
 
 //TODO buffersz workerthreads version
-//tote kolai ke den stelni stous allous
-//h prospa8i na sindeth sto a,b ke termatizi anomala
 
 void perror_exit(const char *message);// print error and exit
 void kill_signal_handler(int sig);//signal handler for SIGQUIT and SIGINT
@@ -51,7 +49,7 @@ LinkedList* list;//list holding all client tuples
 LinkedList* file_list;//list holding all my file tuples (name,version)
 pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;//locks list operations
 char input_dir[100];//my directory
-int my_files_no;
+int my_files_no;//number of my files in input directory
 
 
 int main(int argc, char *argv[]){
