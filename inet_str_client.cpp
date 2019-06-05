@@ -10,7 +10,6 @@
 #include <pthread.h>
 #include <iostream>
 #include <netdb.h>
-
 #include <sys/inotify.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -26,7 +25,6 @@
 using namespace std;
 
 //TODO buffersz workerthreads version
-//FIXME o tritos pelatis mpori na kani 2 thread gia to idio connection
 //tote kolai ke den stelni stous allous
 //h prospa8i na sindeth sto a,b ke termatizi anomala
 
@@ -54,6 +52,7 @@ LinkedList* file_list;//list holding all my file tuples (name,version)
 pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;//locks list operations
 char input_dir[100];//my directory
 int my_files_no;
+
 
 int main(int argc, char *argv[]){
   struct sockaddr_in server;
@@ -138,7 +137,7 @@ int main(int argc, char *argv[]){
 }
 
 //handles all incoming messages from my port
-void *rcv_child(void* newsoc){//TODO close connection when apropriate
+void *rcv_child(void* newsoc){
   char buf[256];
   int newsock= *(int*)newsoc;
   printf("%lu\t\tentering rcv child %d\n",pthread_self(),newsock);
@@ -189,7 +188,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         list->print();
         pthread_mutex_unlock(&list_lock);
 
-        sleep(2);//!!!den ine apolita sosto
+        //sleep(2);//!!!den ine apolita sosto
         //try to connect to client
         int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
         //send GET_FILE_LIST
@@ -198,7 +197,6 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         printf("%lu\t\tsending %s\n",pthread_self(),aa );
         if (write(tmp_sock, aa, strlen(aa)) < 0) perror_exit("write");
         printf("%lu\t\tclosing connection\n",pthread_self());
-        sleep(1);//!!!den ine apolita sosto
         int count;
         do{ioctl(tmp_sock, FIONREAD, &count);sleep(1);}while(count!=0);
         sleep(1);close(tmp_sock);
@@ -485,7 +483,7 @@ void *primary_server_messages(void *none){
       addr_list = ( struct in_addr **) mymachine -> h_addr_list ;
       strcpy ( server_symbolicip , inet_ntoa (* addr_list [0]) ) ;
       printf ( "%lu\t\tserver name %s resolved to %s \n",pthread_self() , mymachine -> h_name ,server_symbolicip ) ;
-  }
+    }
 
 
   //------------------------------------------------send initial messages to server socket
@@ -638,7 +636,8 @@ int connect_to_sock(char *ipaddr ,char* sock_num){
   server.sin_family = AF_INET;       /* Internet domain */
   server.sin_port = htons(_port);         /* Server port */
   /* Initiate connection */
-  if (connect(_sock, serverptr, sizeof(server)) < 0) perror_exit("connect");
+  int err=1;
+  while((err=connect(_sock, serverptr, sizeof(server)) < 0) && errno==ECONNREFUSED);
   printf("Connected to %s port %d\n", ipaddr, _port);
 
   return _sock;
@@ -891,7 +890,7 @@ int file_sz(char* file_name){
   }
 
   int sz =lseek(fd, 0L, SEEK_END);
-  sleep(1);close(fd);
+  close(fd);
 
   return sz;
 }
