@@ -103,8 +103,7 @@ int main(int argc, char *argv[]){
   //record my files
   make_file_list("", input_dir);
   my_files_no=get_files_no("",input_dir);
-  if(my_files_no!=1)//if input is empty
-    my_files_no++;
+  my_files_no++;
 
   pthread_create(&t, NULL, primary_server_messages, NULL);
   // pthread_join(t, NULL);
@@ -189,7 +188,7 @@ void *rcv_child(void* newsoc){//TODO close connection when apropriate
         list->print();
         pthread_mutex_unlock(&list_lock);
 
-        sleep(1);//!!!den ine apolita sosto
+        sleep(2);//!!!den ine apolita sosto
         //try to connect to client
         int tmp_sock=connect_to_sock(tmp_tuple.ip,tmp_tuple.port);
         //send GET_FILE_LIST
@@ -751,8 +750,8 @@ int get_files_no(char* sub_dir, char* input_dir){
   while ((dir = readdir(d)) != NULL){
     if(strcmp(dir->d_name,".")!=0 && strcmp(dir->d_name,"..")!=0){
       sprintf(tmp, "%s%s%s",input_dir,sub_dir,dir->d_name);
+      empty_dir=false;
       if(is_file(tmp)){// if file
-        empty_dir=false;
         n++;
         // printf("found file %s n= %d\n",tmp,n );
       }
@@ -769,8 +768,6 @@ int get_files_no(char* sub_dir, char* input_dir){
   if(empty_dir){//if the directory is empty
     // printf("found empty_dir %s\n",tmp );
     n++;
-
-
   }
 
   closedir(d);

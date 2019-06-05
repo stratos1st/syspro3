@@ -28,9 +28,9 @@ LinkedList::~LinkedList(){
     a=tmp->next;
     delete tmp;
     tmp=a;
-    cout<<"node deleted\n";
+    //cout<<"node deleted\n";
   }
-  cout << "LIST DELETED\n";
+  //cout << "LIST DELETED\n";
 }
 
 void LinkedList::add(iptuple data){
